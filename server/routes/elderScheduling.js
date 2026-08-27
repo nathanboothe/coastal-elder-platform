@@ -1,17 +1,18 @@
 // routes/elderScheduling.js
 // All HTTP endpoints for the member-facing wizard, the elder self-service
-// form, and admin lookups.
+// form, and admin lookups — shared by BOTH the web client and the mobile
+// app, now that the two backends are merged. Every route below is used by
+// both clients unless a comment says otherwise; the only thing that
+// differs per client is how a request proves who it is (a session cookie
+// for the web browser, a Bearer JWT for the mobile app) — see
+// lib/schedulerAuth.js and lib/manageAuth.js for that split. Route logic
+// itself is now shared in exactly one place, where it used to be
+// duplicated between this repo's server/ and elder-android-backend.
 //
-// CHANGES FROM THE PIN-BASED VERSION:
-//   - /scheduler-auth now validates a WAC code (schedulerAuth.checkCode)
-//     instead of a shared PIN, and returns the matched campus/class date.
-//   - /manage-auth (a single POST) is replaced by two GET routes:
-//     /auth/login (redirects to Microsoft) and /auth/callback (Microsoft
-//     redirects back here). See lib/manageAuth.js.
-//   - /elder-availability, /elder-timeoff, and /all-elders now enforce the
-//     hybrid role model: 'elder' role is forced to their own record;
-//     'admin' role can target anyone.
-//   - New /wac-codes routes for admin management of class codes.
+// Web-only: /auth/login, /auth/callback, /auth/me (the browser redirect
+// sign-in flow), and /elder-sync/refresh (the M365 roster sync).
+// Mobile-only: /admin-auth (the Expo app signs in itself and POSTs the
+// resulting id_token here for verification).
 
 const express = require('express');
 const { listRecords, createRecord, deleteRecords, getRecord } = require('../lib/airtable');
@@ -25,9 +26,11 @@ const config = require('../config');
 
 const router = express.Router();
 
-// --- Member wizard login (WAC code — replaces the old shared PIN) ---
+// --- Member wizard login (WAC code — replaces the old shared PIN).
+// Issues a cookie AND a bearer token; each client uses whichever applies
+// to it. See lib/schedulerAuth.js. ---
 
-router.post('/scheduler-auth', (req, res) => schedulerAuth.checkCode(req, res));
+router.post('/scheduler-auth', (req, res, next) => schedulerAuth.checkCode(req, res, next));
 
 // --- Campuses ---
 
@@ -111,6 +114,10 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
 
     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
 
+    // The booking itself already succeeded above — that's the part that
+    // matters. Email is a secondary effect: if it fails, log it
+    // server-side and tell the client via `emailSent: false`, but don't
+    // fail the whole request.
     let emailSent = true;
     try {
       await Promise.all([
@@ -175,23 +182,27 @@ router.post('/sunday-optout', schedulerAuth.requireSchedulerAuth, async (req, re
   }
 });
 
-// --- Elder/Admin sign-in (Entra ID, replaces the shared manage PIN) ---
-
+// --- Elder/Admin sign-in ---
+// Web: server-side redirect flow (a real browser navigation, not fetch).
 router.get('/auth/login', manageAuth.startLogin);
 router.get('/auth/callback', manageAuth.handleCallback);
 
-// Lightweight session check — lets the frontend find out on page load
-// whether someone's already signed in (and their role/elder match)
-// without the httpOnly session cookie being readable from JS directly.
-router.get('/auth/me', manageAuth.requireManageAuth, (req, res) => {
+// Web only: lets the frontend find out on page load whether someone's
+// already signed in, without the httpOnly session cookie being readable
+// from JS directly.
+router.get('/auth/me', manageAuth.requireAdminAuth, (req, res) => {
   res.json({ role: req.auth.role, name: req.auth.name, elderName: req.auth.elderName });
 });
+
+// Mobile only: the Expo app signs in itself (PKCE) and POSTs the
+// resulting id_token here to be verified.
+router.post('/admin-auth', (req, res) => manageAuth.checkEntraLogin(req, res));
 
 // --- Elder self-service availability. Hybrid scoping: role 'elder' is
 // forced to their own record (matched at login by email); role 'admin'
 // can operate on any elder by name. ---
 
-router.get('/elder-availability', manageAuth.requireManageAuth, async (req, res, next) => {
+router.get('/elder-availability', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     let elderName = req.query.elderName;
     if (req.auth.role === 'elder') {
@@ -212,7 +223,7 @@ router.get('/elder-availability', manageAuth.requireManageAuth, async (req, res,
   }
 });
 
-router.post('/elder-availability', manageAuth.requireManageAuth, async (req, res, next) => {
+router.post('/elder-availability', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     let { elderName, dayOfWeek, weekOfMonth, timeSlots } = req.body;
 
@@ -238,7 +249,7 @@ router.post('/elder-availability', manageAuth.requireManageAuth, async (req, res
   }
 });
 
-router.delete('/elder-availability/:id', manageAuth.requireManageAuth, async (req, res, next) => {
+router.delete('/elder-availability/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role === 'elder') {
       const record = await getRecord(config.airtable.tables.availability, req.params.id);
@@ -256,7 +267,7 @@ router.delete('/elder-availability/:id', manageAuth.requireManageAuth, async (re
 // --- Elder picker (admin-only — self-service elders already know who
 // they are, via req.auth.elderName) ---
 
-router.get('/all-elders', manageAuth.requireManageAuth, async (req, res, next) => {
+router.get('/all-elders', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can browse all elders.' });
@@ -274,9 +285,11 @@ router.get('/all-elders', manageAuth.requireManageAuth, async (req, res, next) =
   }
 });
 
-// --- M365 elder roster sync (admin-only manual refresh) ---
+// --- M365 elder roster sync (admin-only manual refresh). Web-only for
+// now — nothing in the mobile app currently surfaces this action, but
+// it's not gated to a particular client, just to the admin role. ---
 
-router.post('/elder-sync/refresh', manageAuth.requireManageAuth, async (req, res, next) => {
+router.post('/elder-sync/refresh', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can refresh the elder roster.' });
@@ -290,7 +303,7 @@ router.post('/elder-sync/refresh', manageAuth.requireManageAuth, async (req, res
 
 // --- Elder self-service time off (same hybrid scoping as availability) ---
 
-router.get('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next) => {
+router.get('/elder-timeoff', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     let elderName = req.query.elderName;
     if (req.auth.role === 'elder') {
@@ -311,7 +324,7 @@ router.get('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next
   }
 });
 
-router.post('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next) => {
+router.post('/elder-timeoff', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     let { elderName, startDate, endDate, notes } = req.body;
 
@@ -337,7 +350,7 @@ router.post('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, nex
   }
 });
 
-router.delete('/elder-timeoff/:id', manageAuth.requireManageAuth, async (req, res, next) => {
+router.delete('/elder-timeoff/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role === 'elder') {
       const record = await getRecord(config.airtable.tables.timeOff, req.params.id);
@@ -354,7 +367,7 @@ router.delete('/elder-timeoff/:id', manageAuth.requireManageAuth, async (req, re
 
 // --- Admin: WAC class code management ---
 
-router.get('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) => {
+router.get('/wac-codes', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });
@@ -366,7 +379,7 @@ router.get('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) =>
   }
 });
 
-router.post('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) => {
+router.post('/wac-codes', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });
@@ -382,7 +395,7 @@ router.post('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) =
   }
 });
 
-router.delete('/wac-codes/:id', manageAuth.requireManageAuth, async (req, res, next) => {
+router.delete('/wac-codes/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
   try {
     if (req.auth.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });

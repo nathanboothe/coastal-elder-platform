@@ -1,21 +1,30 @@
 // server/lib/manageAuth.js
-// Elder/Admin sign-in via Microsoft Entra ID — Authorization Code flow,
-// confidential client (this server holds a client secret, unlike the
-// mobile app's public client, so PKCE isn't required here; CSRF is still
-// mitigated via the `state` parameter below). Replaces the old single
-// shared PIN with real per-person sign-in, and determines a hybrid role:
-//   - 'admin' (elder-app-admins group): can manage any elder's
-//     availability/time off, and manage WAC codes.
-//   - 'elder' (elders group): scoped to their own record, matched by
-//     signed-in email against the Elders table.
+// Elder/Admin sign-in and session handling — the merged home for BOTH:
+//   - the web app's server-side Authorization Code redirect flow
+//     (startLogin, handleCallback) — a browser gets redirected to
+//     Microsoft and back, and this server holds the client secret
+//   - the mobile app's token-verification flow (checkEntraLogin) — the
+//     Expo app signs in itself (PKCE, public client, no secret) and
+//     POSTs the resulting id_token here to be verified
 //
-// Same signed-cookie session mechanism as before (crypto HMAC) — only the
-// login mechanism and the payload it stores have changed.
+// Both paths call the SAME lib/entraLogin.js to decide "who is this and
+// are they allowed in" — that used to be duplicated between this file and
+// elder-android-backend's schedulerAuth.js. What still legitimately
+// differs is the credential each path hands back afterward: a browser
+// gets an httpOnly signed cookie (same crypto-HMAC approach as before);
+// a native app gets a JWT bearer token in the JSON response, because
+// that's how each client actually holds onto a session.
+//
+// requireAdminAuth (below) is the single gate both clients pass through:
+// it checks for a Bearer token first (mobile), then falls back to the
+// session cookie (web). Every admin/elder route in
+// routes/elderScheduling.js uses this one function now, regardless of
+// which client is calling.
 
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const config = require('../config');
-const entraAuth = require('./entraAuth');
-const { listRecords } = require('./airtable');
+const { resolveEntraLogin } = require('./entraLogin');
 
 const SESSION_COOKIE = 'manage_session';
 const STATE_COOKIE = 'manage_oauth_state';
@@ -56,9 +65,9 @@ function parseCookies(req) {
   );
 }
 
-/** Step 1: redirect the browser to Microsoft's sign-in page. Called by
- *  navigating to this URL directly (a real link, not a fetch call) —
- *  the OAuth redirect needs a top-level browser navigation. */
+/** Step 1 (web only): redirect the browser to Microsoft's sign-in page.
+ *  Called by navigating to this URL directly (a real link, not a fetch
+ *  call) — the OAuth redirect needs a top-level browser navigation. */
 function startLogin(req, res) {
   const state = crypto.randomBytes(16).toString('hex');
 
@@ -83,7 +92,9 @@ function startLogin(req, res) {
   );
 }
 
-/** Step 2: Microsoft redirects back here with a code (or an error). */
+/** Step 2 (web only): Microsoft redirects back here with a code (or an
+ *  error). Exchanges the code, then hands the id_token to the shared
+ *  resolveEntraLogin() for the actual role/elder resolution. */
 async function handleCallback(req, res) {
   const { code, state, error, error_description: errorDescription } = req.query;
   const cookies = parseCookies(req);
@@ -120,45 +131,20 @@ async function handleCallback(req, res) {
     }
 
     const tokenData = await tokenRes.json();
-    const payload = await entraAuth.verifyEntraToken(tokenData.id_token);
 
-    if (!payload.groups) {
-      return res.redirect(
-        '/manage?error=' +
-          encodeURIComponent('Could not determine group membership. Contact an administrator.')
-      );
-    }
-
-    const isAdminGroup = payload.groups.includes(config.entra.adminGroupId);
-    const isElderGroup = payload.groups.includes(config.entra.elderGroupId);
-    if (!isAdminGroup && !isElderGroup) {
-      return res.redirect(
-        '/manage?error=' + encodeURIComponent('Your account is not authorized for admin access.')
-      );
-    }
-
-    const role = isAdminGroup ? 'admin' : 'elder';
-    const email = payload.email || payload.preferred_username || '';
-
-    let elderName = null;
-    if (email) {
-      try {
-        const matches = await listRecords(config.airtable.tables.elders, {
-          filterByFormula: `LOWER({Email}) = '${email.toLowerCase().replace(/'/g, "\\'")}'`,
-        });
-        if (matches[0]) elderName = matches[0].fields['Full Name'];
-      } catch (err) {
-        console.error('Elder lookup by email failed during login:', err.message || err);
-        // Non-fatal — sign-in still succeeds, just without a matched
-        // elder record (self-service screens will show a clear message).
-      }
+    let identity;
+    try {
+      identity = await resolveEntraLogin(tokenData.id_token);
+    } catch (err) {
+      return res.redirect('/manage?error=' + encodeURIComponent(err.userMessage || 'Sign-in failed.'));
     }
 
     const session = sign({
-      role,
-      name: payload.name,
-      email,
-      elderName,
+      role: identity.role,
+      name: identity.name,
+      email: identity.email,
+      elderId: identity.elderId,
+      elderName: identity.elderName,
       expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000,
     });
 
@@ -177,8 +163,67 @@ async function handleCallback(req, res) {
   }
 }
 
-/** Express middleware — blocks the request unless a valid session cookie is present. */
-function requireManageAuth(req, res, next) {
+/** Mobile only: the Expo app signs in itself (PKCE) and POSTs the
+ *  resulting id_token here. Same identity resolution as the web flow
+ *  above, but issues a JWT bearer token in the JSON response instead of
+ *  a cookie, since that's how the mobile app actually holds a session. */
+async function checkEntraLogin(req, res) {
+  const { idToken } = req.body || {};
+  if (!idToken) {
+    return res.status(400).json({ error: 'idToken is required' });
+  }
+
+  let identity;
+  try {
+    identity = await resolveEntraLogin(idToken);
+  } catch (err) {
+    return res.status(err.status || 401).json({ error: err.userMessage || 'Sign-in failed.' });
+  }
+
+  const token = jwt.sign(
+    {
+      scope: 'admin',
+      role: identity.role,
+      name: identity.name,
+      email: identity.email,
+      elderId: identity.elderId,
+      elderName: identity.elderName,
+    },
+    config.jwt.secret,
+    { expiresIn: config.jwt.expiresIn }
+  );
+
+  res.json({
+    token,
+    expiresIn: config.jwt.expiresIn,
+    name: identity.name,
+    role: identity.role,
+    elderName: identity.elderName,
+  });
+}
+
+/** The one gate every admin/elder route uses, regardless of which client
+ *  is calling: a Bearer token (mobile) is checked first, then the
+ *  session cookie (web). Populates req.auth identically either way —
+ *  { role, name, email, elderId, elderName, ... } — so route handlers
+ *  never need to know which client sent the request. */
+function requireAdminAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [scheme, token] = header.split(' ');
+
+  if (scheme === 'Bearer' && token) {
+    try {
+      const payload = jwt.verify(token, config.jwt.secret);
+      if (payload.scope !== 'admin') {
+        return res.status(403).json({ error: 'Token does not have admin access' });
+      }
+      req.auth = payload;
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  }
+
   const cookies = parseCookies(req);
   const session = verify(cookies[SESSION_COOKIE]);
   if (!session) {
@@ -188,4 +233,4 @@ function requireManageAuth(req, res, next) {
   next();
 }
 
-module.exports = { startLogin, handleCallback, requireManageAuth };
+module.exports = { startLogin, handleCallback, checkEntraLogin, requireAdminAuth };
