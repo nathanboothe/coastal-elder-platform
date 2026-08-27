@@ -62,6 +62,18 @@ module.exports = {
     sessionSecret: required('SCHEDULER_SESSION_SECRET'),
   },
 
+  // --- Mobile bearer-token signing. The web client uses signed cookies
+  // (manage.sessionSecret / scheduler.sessionSecret above); the mobile
+  // app can't rely on a browser cookie jar, so it gets a JWT instead.
+  // One secret, `scope` field on the token payload ('scheduler' vs
+  // 'admin') tells requireSchedulerAuth/requireAdminAuth which kind it
+  // is — same approach elder-android-backend used on its own before the
+  // backend merge. ---
+  jwt: {
+    secret: required('JWT_SECRET'),
+    expiresIn: '12h',
+  },
+
   // --- Entra ID (elder/admin sign-in) ---
   // A separate app registration from BOTH the Graph mail registration
   // above AND elder-android-app's mobile public client — confidential
