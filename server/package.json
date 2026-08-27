@@ -9,8 +9,10 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
-    "express": "^4.19.2"
-  },
+  "express": "^4.19.2",
+  "jsonwebtoken": "^9.0.3",
+  "jwks-rsa": "^4.1.0"
+},
   "engines": {
     "node": ">=18"
   }
