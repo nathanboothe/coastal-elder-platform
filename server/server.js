@@ -16,7 +16,8 @@ app.use('/api', elderSchedulingRoutes);
 // Serve the built React frontend (added next session) as static assets.
 // Until that exists, this just won't find anything to serve at "/" — the
 // API endpoints above will still work fine for testing via curl/Postman.
-const clientBuildPath = path.join(__dirname, '..', 'client', 'dist');
+const clientBuildPath = path.join(__dirname, '..', 'client-web', 'dist');
+// const clientBuildPath = path.join(__dirname, '..', 'client', 'dist');
 app.use(express.static(clientBuildPath));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
