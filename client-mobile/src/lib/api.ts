@@ -339,6 +339,7 @@ export async function createAppointment(input: {
   timeSlot: string;
   memberName: string;
   memberEmail: string;
+  memberPhone?: string;
 }): Promise<{ emailSent: boolean }> {
   const response = await fetch(`${API_BASE}/appointments`, {
     method: 'POST',

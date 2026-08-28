@@ -174,21 +174,21 @@ export default function AdminHomeScreen() {
 
         {!loading &&
           !error &&
-          codes.map((c) => (
-            <View key={c.id} style={[styles.codeRow, !c.active && styles.codeRowInactive]}>
-              <View style={styles.codeInfo}>
-                <Text style={styles.codeText}>{c.code}</Text>
-                <Text style={styles.codeMeta}>
-                  {c.campus} · {c.classDate} · {c.active ? 'Active' : 'Inactive'}
-                </Text>
-              </View>
-              {c.active && (
+          codes
+            .filter((c) => c.active)
+            .map((c) => (
+              <View key={c.id} style={styles.codeRow}>
+                <View style={styles.codeInfo}>
+                  <Text style={styles.codeText}>{c.code}</Text>
+                  <Text style={styles.codeMeta}>
+                    {c.campus} · {c.classDate}
+                  </Text>
+                </View>
                 <Pressable style={styles.deactivateButton} onPress={() => handleDeactivate(c.id)}>
                   <Text style={styles.deactivateButtonText}>Deactivate</Text>
                 </Pressable>
-              )}
-            </View>
-          ))}
+              </View>
+            ))}
       </ScrollView>
     </SafeAreaView>
   );
