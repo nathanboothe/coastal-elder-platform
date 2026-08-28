@@ -23,6 +23,7 @@ const manageAuth = require('../lib/manageAuth');
 const schedulerAuth = require('../lib/schedulerAuth');
 const wacCodes = require('../lib/wacCodes');
 const elderSync = require('../lib/elderSync');
+const elderObjectIdBackfill = require('../lib/elderObjectIdBackfill');
 const config = require('../config');
 
 const router = express.Router();
@@ -375,6 +376,27 @@ router.post('/elder-sync/refresh', manageAuth.requireAdminAuth, async (req, res,
     }
     const summary = await elderSync.refreshFromM365();
     res.json({ success: true, ...summary });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// One-time backfill: fills in the M365 Object ID on manually-seeded elder
+// records by exact email match, so the calendar-sync feature knows whose
+// Outlook calendar to write to. See lib/elderObjectIdBackfill.js for why
+// this is deliberately separate from /elder-sync/refresh above — running
+// that refresh on a Manual elder still missing an Object ID creates a
+// duplicate record instead of filling in the gap.
+//
+// Defaults to a dry run (nothing written) so results can be reviewed
+// before committing — pass { "confirm": true } in the body for a real run.
+router.post('/elder-sync/backfill-object-ids', manageAuth.requireAdminAuth, async (req, res, next) => {
+  try {
+    if (req.auth.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can run the Object ID backfill.' });
+    }
+    const result = await elderObjectIdBackfill.run({ confirm: req.body?.confirm === true });
+    res.json(result);
   } catch (err) {
     next(err);
   }
