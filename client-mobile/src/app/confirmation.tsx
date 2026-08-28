@@ -34,6 +34,7 @@ export default function ConfirmationScreen() {
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
+  const [memberPhone, setMemberPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +54,7 @@ export default function ConfirmationScreen() {
         timeSlot: time,
         memberName: memberName.trim(),
         memberEmail: memberEmail.trim(),
+        memberPhone: memberPhone.trim() || undefined,
       });
       // Only navigate to the success screen once the backend has actually
       // confirmed the slot — if it was taken in the meantime, the error
@@ -121,6 +123,15 @@ export default function ConfirmationScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
+          />
+
+          <Text style={styles.formLabel}>Your Phone Number (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={memberPhone}
+            onChangeText={(text) => setMemberPhone(text)}
+            placeholder="(757) 555-0100"
+            keyboardType="phone-pad"
           />
         </View>
 

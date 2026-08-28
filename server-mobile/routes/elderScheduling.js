@@ -90,12 +90,12 @@ router.get('/elders', schedulerAuth.requireSchedulerAuth, async (req, res, next)
 
 router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
   try {
-    const { campusName, elderName, date, timeSlot, memberName, memberEmail } = req.body;
+    const { campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone } = req.body;
     if (!campusName || !elderName || !date || !timeSlot || !memberName || !memberEmail) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail });
+    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone });
 
     // Look up the elder's email for the confirmation.
     const elderRecords = await listRecords(config.airtable.tables.elders, {
@@ -104,6 +104,37 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
     const elderEmail = elderRecords[0]?.fields?.['Email'];
 
     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+
+    // Weekday + month + day, matching how the booking wizard itself
+    // displays the date on-screen. The UTC-bug pattern applies here too:
+    // `date` arrives as a bare YYYY-MM-DD, which needs T00:00:00 appended
+    // before constructing a Date or it can parse a day early in
+    // negative-UTC-offset zones.
+    const formattedDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    });
+
+    // INTERIM template (Aug 2026) — mirrors server/routes/elderScheduling.js
+    // (kept as a literal duplicate, not shared code, since server-mobile/
+    // is a temporary folder pending Phase 3's mobile cutover — see the
+    // unified-platform-roadmap). Replaces the terse placeholder body for
+    // the member-facing email only, until per-elder custom templates
+    // (Phase 4) exist. Elder- and OME-facing emails intentionally stay
+    // as their short existing versions for now.
+    const memberBody =
+      `Thank you for scheduling an appointment with ${elderName} on ${formattedDate} at ${timeSlot}. ` +
+      `Please meet him at the welcome center on your campus. Any of our First Impressions team ` +
+      `members can help connect the two of you if needed.\n\n` +
+      `${elderName} is also receiving a notification of this appointment. If you need to reach ` +
+      `him for any reason, his email address is ${elderEmail || '(not on file)'}.\n\n` +
+      `If he needs to reach you, he will use the email or phone number with which you registered. ` +
+      `If they are not correctly shown below, please be sure to reach out to him to let him know.\n\n` +
+      `${memberEmail}\n${memberPhone || '(no phone number provided)'}\n\n` +
+      `If either of you are unable to reach one another, our Office of Membership and Engagement ` +
+      `is available to help at any time. Their email is engagement@gocoastal.org and the phone ` +
+      `number is 757.867.5683.`;
 
     // The booking itself already succeeded above — that's the part that
     // matters. Email is a secondary effect: if it fails, log it
@@ -115,7 +146,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
         mail.sendMail({
           to: memberEmail,
           subject: 'Your meeting with an Elder is confirmed',
-          body: `Your meeting is confirmed.\n\n${summary}`,
+          body: memberBody,
         }),
         elderEmail
           ? mail.sendMail({

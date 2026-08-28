@@ -66,6 +66,7 @@ export default function ElderScheduling() {
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
+  const [memberPhone, setMemberPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [emailSent, setEmailSent] = useState(true);
 
@@ -200,6 +201,7 @@ export default function ElderScheduling() {
         timeSlot: time,
         memberName,
         memberEmail,
+        memberPhone,
       }),
     })
       .then((res) => {
@@ -420,6 +422,10 @@ export default function ElderScheduling() {
           <label>
             Your email
             <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
+          </label>
+          <label>
+            Your phone number (optional)
+            <input type="tel" value={memberPhone} onChange={(e) => setMemberPhone(e.target.value)} />
           </label>
           <button type="submit">Confirm appointment</button>
         </form>

@@ -233,7 +233,7 @@ const SLOT_ORDER = [
  * to close the race condition between a user viewing options and submitting).
  * Throws if the elder/date/time is no longer available.
  */
-async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail }) {
+async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone }) {
   const appts = await getConfirmedAppointments(date, campusName);
   const conflict = appts.some(
     (a) => a.fields['Elder Name'] === elderName && a.fields['Time Slot'] === timeSlot
@@ -245,6 +245,9 @@ async function createAppointment({ campusName, elderName, date, timeSlot, member
   return createRecord(config.airtable.tables.appointments, {
     'Member Name': memberName,
     'Member Email': memberEmail,
+    // Optional — the confirmation form doesn't require it, so it may be
+    // absent. Omit rather than write an empty string to Airtable.
+    ...(memberPhone ? { 'Member Phone': memberPhone } : {}),
     Campus: campusName,
     'Elder Name': elderName,
     Date: date,
