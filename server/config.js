@@ -84,6 +84,14 @@ module.exports = {
     clientId: required('ENTRA_CLIENT_ID'),
     clientSecret: required('ENTRA_CLIENT_SECRET'),
     redirectUri: process.env.ENTRA_REDIRECT_URI || 'https://elder.techfoundry360.com/api/auth/callback',
+    // The mobile app's OWN separate Entra registration ("Coastal Elder
+    // Scheduler — Mobile", a public client — no secret, since it can't
+    // hold one safely). id_tokens it produces carry THIS client ID as
+    // their audience, not the web app's — entraAuth.js validates against
+    // both, since this one backend now serves both clients (see
+    // unified-platform-roadmap Section 3 on why the two registrations
+    // stay separate even though they share a backend).
+    mobileClientId: required('ENTRA_MOBILE_CLIENT_ID'),
     // Same two security groups the Android app uses — group membership is
     // a tenant-level concept, shared across app registrations.
     elderGroupId: required('ENTRA_GROUP_ID_ELDERS'),

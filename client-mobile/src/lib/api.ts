@@ -1,6 +1,18 @@
-const API_BASE = 'https://elder-android-backend.onrender.com/api';
+// Points at the unified elder-api (server/) — the same backend the web
+// app uses, as of the Phase 3 backend merge. Previously pointed at the
+// old standalone elder-android-backend service; that split existed only
+// because the web app's original /manage was PIN-gated with no per-user
+// identity, which is no longer true (see unified-platform-roadmap Section
+// 3). The custom domain is used rather than a raw .onrender.com URL
+// since Render's internal service naming has drifted from what's
+// actually live — the domain is the one stable reference point.
+const API_BASE = 'https://elder.techfoundry360.com/api';
 
 // Not secrets — safe to have as real values here (embedded in the app itself).
+// This is the "Coastal Elder Scheduler — Mobile" app registration's own
+// client ID (a public client, PKCE, no secret) — deliberately separate
+// from the web app's registration. The backend now accepts id_tokens
+// from either registration (see server/lib/entraAuth.js).
 export const ENTRA_CONFIG = {
   tenantId: '1607456c-506f-4aea-bd09-15a63ec8ad52',
   clientId: '9ae266aa-5a20-409d-8fae-153a6cedf606',
