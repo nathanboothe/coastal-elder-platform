@@ -26,6 +26,7 @@ module.exports = {
       timeOff: 'TimeOff',
       appointments: 'Appointments',
       sundayOptOut: 'SundayOptOut',
+      engagementRequests: 'EngagementRequests',
       // Shared with elder-android-backend — same underlying table, this
       // repo just references it by name instead of table ID.
       wacCodes: 'WACCodes',

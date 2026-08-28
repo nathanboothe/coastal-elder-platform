@@ -48,10 +48,39 @@ async function getEldersForCampus(campusName) {
 /** Public-safe elder lookup for the member wizard's "preferred elder" step
  *  (the existing /all-elders route is gated behind manageAuth, which is the
  *  wrong gate for member-facing use, so this is the schedulerAuth-gated
- *  equivalent, scoped to one campus). */
+ *  equivalent, scoped to one campus). Includes a plain-language summary of
+ *  each elder's recurring availability pattern — not live open slots (that
+ *  gets computed per-elder, once one is actually picked, via
+ *  getAvailableDates/getAvailableTimes below). */
+function summarizeAvailabilityRows(rows) {
+  return rows.map((r) => {
+    const weeks = r.fields['Week of Month'] || [];
+    const slots = r.fields['Time Slots'] || [];
+    const day = r.fields['Day of Week'] || '';
+    const weekLabel = weeks.includes('Every Week')
+      ? `Every ${day}`
+      : weeks.length > 0
+        ? `${weeks.join(', ')} ${day}`
+        : day;
+    const timeLabel = SLOT_ORDER.filter((s) => slots.includes(s)).join(', ') || '(no times set)';
+    return `${weekLabel} at ${timeLabel}`;
+  });
+}
+
 async function getEldersForCampusPublic(campusName) {
   const elders = await getEldersForCampus(campusName);
-  return elders.map((e) => ({ id: e.id, name: e.fields['Full Name'] }));
+  const elderNames = elders.map((e) => e.fields['Full Name']);
+  if (elderNames.length === 0) return [];
+
+  const allAvailRows = await listRecords(config.airtable.tables.availability, {
+    filterByFormula: `OR(${elderNames.map((n) => `{Elder Name} = '${escapeFormulaValue(n)}'`).join(', ')})`,
+  });
+
+  return elders.map((e) => {
+    const name = e.fields['Full Name'];
+    const rows = allAvailRows.filter((r) => r.fields['Elder Name'] === name);
+    return { id: e.id, name, availability: summarizeAvailabilityRows(rows) };
+  });
 }
 
 /** Fetch Availability rows for a list of elder names, for a specific day of week. */
@@ -85,6 +114,7 @@ async function getConfirmedAppointments(dateStr, campusName) {
  * Returns up to config.scheduling.weeksAhead upcoming dates for a given
  * day-of-week (default Sunday) where at least one elder at the campus has
  * an open slot — and which fall at least MIN_LEAD_DAYS after classDate.
+ * If elderName is given, narrows to that one elder's open slots only.
  *
  * The search cursor starts at whichever is later: today, or
  * (classDate + MIN_LEAD_DAYS). There's no upper bound on how far forward it
@@ -92,9 +122,9 @@ async function getConfirmedAppointments(dateStr, campusName) {
  * recent class date just means it walks further out before finding the
  * first eligible Sunday, rather than coming back empty.
  */
-async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate) {
+async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate, elderName) {
   const elders = await getEldersForCampus(campusName);
-  const elderNames = elders.map((e) => e.fields['Full Name']);
+  const elderNames = elderName ? [elderName] : elders.map((e) => e.fields['Full Name']);
   if (elderNames.length === 0) return [];
 
   const today = new Date();
@@ -233,7 +263,7 @@ const SLOT_ORDER = [
  * to close the race condition between a user viewing options and submitting).
  * Throws if the elder/date/time is no longer available.
  */
-async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone }) {
+async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail }) {
   const appts = await getConfirmedAppointments(date, campusName);
   const conflict = appts.some(
     (a) => a.fields['Elder Name'] === elderName && a.fields['Time Slot'] === timeSlot
@@ -245,9 +275,6 @@ async function createAppointment({ campusName, elderName, date, timeSlot, member
   return createRecord(config.airtable.tables.appointments, {
     'Member Name': memberName,
     'Member Email': memberEmail,
-    // Optional — the confirmation form doesn't require it, so it may be
-    // absent. Omit rather than write an empty string to Airtable.
-    ...(memberPhone ? { 'Member Phone': memberPhone } : {}),
     Campus: campusName,
     'Elder Name': elderName,
     Date: date,
@@ -267,6 +294,19 @@ async function createSundayOptOut({ campusName, memberName, memberEmail, notes }
   });
 }
 
+/** "None of these elders/times work for me" escape hatch from the
+ *  preferred-elder step — logged the same way Sunday opt-outs are, so
+ *  engagement has a record to follow up on manually. */
+async function createEngagementRequest({ campusName, memberName, memberEmail, notes }) {
+  return createRecord(config.airtable.tables.engagementRequests, {
+    'Member Name': memberName,
+    'Member Email': memberEmail,
+    Campus: campusName,
+    Notes: notes || '',
+    'Created At': new Date().toISOString(),
+  });
+}
+
 module.exports = {
   getAvailableDates,
   getAvailableTimes,
@@ -274,6 +314,7 @@ module.exports = {
   getEldersForCampusPublic,
   createAppointment,
   createSundayOptOut,
+  createEngagementRequest,
   weekOfMonth,
   dayName,
 };

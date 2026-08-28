@@ -14,6 +14,7 @@ export type Campus = {
 export type Elder = {
   id: string;
   name: string;
+  availability?: string[];
 };
 
 // --- Session state ---
@@ -309,9 +310,11 @@ export async function submitSundayOptOut(input: {
 export async function fetchDates(
   campusName: string,
   classDate: string,
-  dayOfWeek: string = 'Sunday'
+  dayOfWeek: string = 'Sunday',
+  elderName?: string
 ): Promise<string[]> {
   const params = new URLSearchParams({ campusName, classDate, dayOfWeek });
+  if (elderName) params.set('elderName', elderName);
   const response = await fetch(`${API_BASE}/dates?${params.toString()}`, {
     headers: authHeaders(),
   });
@@ -321,13 +324,47 @@ export async function fetchDates(
   return response.json();
 }
 
-export async function fetchTimes(campusName: string, date: string): Promise<string[]> {
+export async function fetchTimes(campusName: string, date: string, elderName?: string): Promise<string[]> {
   const params = new URLSearchParams({ campusName, date });
+  if (elderName) params.set('elderName', elderName);
   const response = await fetch(`${API_BASE}/times?${params.toString()}`, {
     headers: authHeaders(),
   });
   if (!response.ok) {
     throw new Error(`Failed to load times (${response.status})`);
+  }
+  return response.json();
+}
+
+/** Elders at a campus, with a plain-language summary of each one's
+ *  recurring availability pattern — used for the preferred-elder step,
+ *  before any date/time has been picked. */
+export async function fetchCampusElders(campusName: string): Promise<Elder[]> {
+  const params = new URLSearchParams({ campusName });
+  const response = await fetch(`${API_BASE}/campus-elders?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load elders (${response.status})`);
+  }
+  return response.json();
+}
+
+/** "None of these elders/times work for me" escape hatch. */
+export async function submitContactEngagement(input: {
+  campusName: string;
+  memberName: string;
+  memberEmail: string;
+  notes?: string;
+}): Promise<{ emailSent: boolean }> {
+  const response = await fetch(`${API_BASE}/contact-engagement`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error || `Failed to submit your request (${response.status})`);
   }
   return response.json();
 }
@@ -340,7 +377,7 @@ export async function createAppointment(input: {
   memberName: string;
   memberEmail: string;
   memberPhone?: string;
-}): Promise<{ emailSent: boolean }> {
+}): Promise<{ emailSent: boolean; calendarEventCreated?: boolean }> {
   const response = await fetch(`${API_BASE}/appointments`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },

@@ -18,6 +18,7 @@ module.exports = {
       appointments: process.env.AIRTABLE_TABLE_APPOINTMENTS,
       timeOff: process.env.AIRTABLE_TABLE_TIMEOFF,
       sundayOptOut: process.env.AIRTABLE_TABLE_SUNDAY_OPTOUT,
+      engagementRequests: process.env.AIRTABLE_TABLE_ENGAGEMENT_REQUESTS || 'EngagementRequests',
       wacCodes: process.env.AIRTABLE_TABLE_WAC_CODES,
     },
   },

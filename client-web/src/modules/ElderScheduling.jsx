@@ -1,17 +1,16 @@
 import { useState } from 'react';
 
 const STEP = {
-  PIN_GATE: 'pin_gate',
-  CAMPUS: 'campus',
-  CLASS_DATE: 'class_date',
+  CODE_GATE: 'code_gate',
+  PREFERENCE: 'preference',
+  ELDER_LIST: 'elder_list',
+  ENGAGEMENT_FORM: 'engagement_form',
+  ENGAGEMENT_DONE: 'engagement_done',
   SUNDAY_CHECK: 'sunday_check',
   OPT_OUT_FORM: 'opt_out_form',
   OPT_OUT_DONE: 'opt_out_done',
   DATE: 'date',
-  ELDER_PREFERENCE: 'elder_preference',
-  ELDER_CHOICE: 'elder_choice',
   TIME: 'time',
-  ELDER: 'elder',
   MEMBER_FORM: 'member_form',
   CONFIRMED: 'confirmed',
 };
@@ -28,7 +27,7 @@ async function api(path, options) {
   return data;
 }
 
-function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
+function StepList({ items, getLabel, getSubLabel, onPick, emptyMessage, gridClassName }) {
   if (items.length === 0) {
     return <p className="empty-message">{emptyMessage}</p>;
   }
@@ -37,6 +36,11 @@ function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
       {items.map((item, i) => (
         <button key={i} className="option-btn" onClick={() => onPick(item)}>
           {getLabel(item)}
+          {getSubLabel && (
+            <span style={{ display: 'block', fontWeight: 400, fontSize: '11px', marginTop: 4, textTransform: 'none' }}>
+              {getSubLabel(item)}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -44,16 +48,20 @@ function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
 }
 
 export default function ElderScheduling() {
-  const [step, setStep] = useState(STEP.PIN_GATE);
+  const [step, setStep] = useState(STEP.CODE_GATE);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState(null);
+  const [code, setCode] = useState('');
+  const [codeError, setCodeError] = useState(null);
 
-  const [campuses, setCampuses] = useState([]);
-  const [campus, setCampus] = useState(null); // { id, name }
+  // Derived entirely from the WAC code — never asked of the member directly.
+  const [campus, setCampus] = useState(null); // { name }
   const [classDate, setClassDate] = useState('');
+
+  const [wantsPreferred, setWantsPreferred] = useState(null); // true | false, drives ELDER_LIST heading only
+
+  const [elderList, setElderList] = useState([]);
 
   const [dates, setDates] = useState([]);
   const [date, setDate] = useState(null);
@@ -61,8 +69,7 @@ export default function ElderScheduling() {
   const [times, setTimes] = useState([]);
   const [time, setTime] = useState(null);
 
-  const [elders, setElders] = useState([]);
-  const [elder, setElder] = useState(null);
+  const [elder, setElder] = useState(null); // { id, name }
 
   const [memberName, setMemberName] = useState('');
   const [memberEmail, setMemberEmail] = useState('');
@@ -71,46 +78,56 @@ export default function ElderScheduling() {
   const [emailSent, setEmailSent] = useState(true);
 
   function reset() {
-    setStep(STEP.CAMPUS);
-    setCampus(null);
-    setClassDate('');
+    setStep(STEP.PREFERENCE);
+    setWantsPreferred(null);
     setDate(null);
     setTime(null);
     setElder(null);
     setMemberName('');
     setMemberEmail('');
+    setMemberPhone('');
     setNotes('');
     setError(null);
   }
 
-  function submitPin(ev) {
+  function submitCode(ev) {
     ev.preventDefault();
     setLoading(true);
-    setPinError(null);
-    api('/scheduler-auth', { method: 'POST', body: JSON.stringify({ code: pin }) })
-      .then(() => api('/campuses'))
+    setCodeError(null);
+    api('/scheduler-auth', { method: 'POST', body: JSON.stringify({ code }) })
       .then((data) => {
-        setCampuses([...data].sort((a, b) => a.name.localeCompare(b.name)));
-        setStep(STEP.CAMPUS);
+        setCampus({ name: data.campus });
+        setClassDate(data.classDate);
+        setStep(STEP.PREFERENCE);
       })
-      .catch((e) => setPinError(e.message))
+      .catch((e) => setCodeError(e.message))
       .finally(() => setLoading(false));
   }
 
-  function pickCampus(c) {
-    setCampus(c);
-    setStep(STEP.CLASS_DATE);
+  function loadElderList(preferred) {
+    setWantsPreferred(preferred);
+    setLoading(true);
+    setError(null);
+    api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
+      .then((list) => {
+        setElderList(list);
+        setStep(STEP.ELDER_LIST);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }
 
-  function submitClassDate(cd) {
-    setClassDate(cd);
+  function pickElder(e) {
+    setElder(e);
     setStep(STEP.SUNDAY_CHECK);
   }
 
   function pickSunday() {
     setLoading(true);
     setError(null);
-    api(`/dates?campusName=${encodeURIComponent(campus.name)}&dayOfWeek=Sunday&classDate=${classDate}`)
+    api(
+      `/dates?campusName=${encodeURIComponent(campus.name)}&dayOfWeek=Sunday&classDate=${classDate}&elderName=${encodeURIComponent(elder.name)}`
+    )
       .then((d) => {
         setDates(d);
         setStep(STEP.DATE);
@@ -121,70 +138,21 @@ export default function ElderScheduling() {
 
   function pickDate(d) {
     setDate(d);
-    setStep(STEP.ELDER_PREFERENCE);
-  }
-
-  function noPreference() {
-    setLoading(true);
-    setError(null);
-    api(`/times?campusName=${encodeURIComponent(campus.name)}&date=${date}`)
-      .then((t) => {
-        setTimes(t);
-        setStep(STEP.TIME);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  function wantsPreference() {
-    setLoading(true);
-    setError(null);
-    api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
-      .then((list) => {
-        setElders(list);
-        setStep(STEP.ELDER_CHOICE);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  function pickPreferredElder(e) {
-    setElder(e); // marks the elder as already locked in for pickTime() below
     setLoading(true);
     setError(null);
     api(
-      `/times?campusName=${encodeURIComponent(campus.name)}&date=${date}&elderName=${encodeURIComponent(e.name)}`
+      `/times?campusName=${encodeURIComponent(campus.name)}&date=${d}&elderName=${encodeURIComponent(elder.name)}`
     )
       .then((t) => {
         setTimes(t);
         setStep(STEP.TIME);
       })
-      .catch((e2) => setError(e2.message))
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
   function pickTime(t) {
     setTime(t);
-    if (elder) {
-      // Preferred elder already chosen back in ELDER_CHOICE — skip the elder step entirely.
-      setStep(STEP.MEMBER_FORM);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    api(
-      `/elders?campusName=${encodeURIComponent(campus.name)}&date=${date}&timeSlot=${encodeURIComponent(t)}`
-    )
-      .then((e) => {
-        setElders(e);
-        setStep(STEP.ELDER);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  function pickElder(e) {
-    setElder(e);
     setStep(STEP.MEMBER_FORM);
   }
 
@@ -210,7 +178,6 @@ export default function ElderScheduling() {
       })
       .catch((e) => {
         setError(e.message);
-        // If the slot was just taken, send them back to re-pick a time.
         if (e.message.includes('just booked')) {
           setStep(STEP.TIME);
         }
@@ -239,82 +206,130 @@ export default function ElderScheduling() {
       .finally(() => setLoading(false));
   }
 
+  function submitEngagementRequest(ev) {
+    ev.preventDefault();
+    setLoading(true);
+    setError(null);
+    api('/contact-engagement', {
+      method: 'POST',
+      body: JSON.stringify({
+        campusName: campus.name,
+        memberName,
+        memberEmail,
+        notes,
+      }),
+    })
+      .then((res) => {
+        setEmailSent(res.emailSent !== false);
+        setStep(STEP.ENGAGEMENT_DONE);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }
+
+  const formattedClassDate = classDate
+    ? new Date(classDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
+    : '';
+
   return (
     <div className="wizard">
       <img src="/logo.png" alt="Coastal Church" className="logo-img" />
       <h1>Elder Scheduling</h1>
 
-      {step !== STEP.PIN_GATE && (
+      {step !== STEP.CODE_GATE && (
         <div className="breadcrumb">
-          {campus && (
-            <span className="crumb done">Campus: {campus.name}</span>
-          )}
-          {campus && step !== STEP.SUNDAY_CHECK && (
-            <span className={date || step === STEP.OPT_OUT_FORM || step === STEP.OPT_OUT_DONE ? 'crumb done' : 'crumb'}>
-              {step === STEP.OPT_OUT_FORM || step === STEP.OPT_OUT_DONE
-                ? "Can't meet Sunday"
-                : date
-                  ? `Date: ${new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`
-                  : 'Date'}
+          {campus && <span className="crumb done">Campus: {campus.name}</span>}
+          {elder && <span className="crumb done">Elder: {elder.name}</span>}
+          {date && (
+            <span className="crumb done">
+              Date: {new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
             </span>
           )}
-          {date && <span className={time ? 'crumb done' : 'crumb'}>{time ? `Time: ${time}` : 'Time'}</span>}
-          {time && <span className={elder ? 'crumb done' : 'crumb'}>{elder ? `Elder: ${elder.name}` : 'Elder'}</span>}
+          {time && <span className="crumb done">Time: {time}</span>}
         </div>
       )}
 
       {error && <p className="error-message">{error}</p>}
       {loading && <p className="loading-message">Loading…</p>}
 
-      {!loading && step === STEP.PIN_GATE && (
-        <form className="member-form" onSubmit={submitPin}>
-          <h2>Enter PIN to schedule a meeting</h2>
+      {!loading && step === STEP.CODE_GATE && (
+        <form className="member-form" onSubmit={submitCode}>
+          <h2>Enter code to schedule a meeting</h2>
           <input
             type="text"
             autoCapitalize="characters"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
             autoFocus
           />
           <button type="submit">Continue</button>
-          {pinError && <p className="error-message">{pinError}</p>}
+          {codeError && <p className="error-message">{codeError}</p>}
         </form>
       )}
 
-      {!loading && step === STEP.CAMPUS && (
+      {!loading && step === STEP.PREFERENCE && (
         <>
-          <h2>Select your campus</h2>
-          <StepList
-            items={campuses}
-            getLabel={(c) => c.name}
-            onPick={pickCampus}
-            emptyMessage="No campuses found."
-            gridClassName="campus-grid"
-          />
+          <h2>
+            The code you entered indicates that you attended We Are Coastal on {formattedClassDate} at{' '}
+            {campus?.name}. Do you have a preferred elder you would like to meet with?
+          </h2>
+          <div className="option-grid">
+            <button className="option-btn" onClick={() => loadElderList(true)}>
+              Yes
+            </button>
+            <button className="option-btn" onClick={() => loadElderList(false)}>
+              No preference
+            </button>
+          </div>
         </>
       )}
 
-      {!loading && step === STEP.CLASS_DATE && (
-        <form
-          className="member-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submitClassDate(classDate);
-          }}
-        >
-          <h2>When did you take the "We Are Coastal" class?</h2>
+      {!loading && step === STEP.ELDER_LIST && (
+        <>
+          <h2>{wantsPreferred ? 'Choose your preferred elder' : 'Elders at your campus'}</h2>
+          <StepList
+            items={elderList}
+            getLabel={(e) => e.name}
+            getSubLabel={(e) => (e.availability && e.availability.length > 0 ? e.availability.join(' · ') : 'Availability not yet set')}
+            onPick={pickElder}
+            emptyMessage="No Elders found for this campus."
+          />
+          <button
+            className="restart-btn"
+            style={{ marginTop: '1.5rem' }}
+            onClick={() => setStep(STEP.ENGAGEMENT_FORM)}
+          >
+            None of these work for me
+          </button>
+        </>
+      )}
+
+      {!loading && step === STEP.ENGAGEMENT_FORM && (
+        <form className="member-form" onSubmit={submitEngagementRequest}>
+          <h2>Let us know how to reach you</h2>
           <label>
-            Class date
-            <input
-              type="date"
-              required
-              value={classDate}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => setClassDate(e.target.value)}
-            />
+            Your name
+            <input required value={memberName} onChange={(e) => setMemberName(e.target.value)} />
           </label>
-          <button type="submit">Next</button>
+          <label>
+            Your email
+            <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
+          </label>
+          <label>
+            What would help? (optional)
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </label>
+          <button type="submit">Submit</button>
         </form>
+      )}
+
+      {!loading && step === STEP.ENGAGEMENT_DONE && (
+        <div className="confirmation">
+          <p>Thank you — our engagement team will follow up to help find a time that works.</p>
+          {!emailSent && (
+            <p className="empty-message">(Note: the notification email couldn't be sent. The request itself was saved.)</p>
+          )}
+        </div>
       )}
 
       {!loading && step === STEP.SUNDAY_CHECK && (
@@ -361,34 +376,12 @@ export default function ElderScheduling() {
 
       {!loading && step === STEP.DATE && (
         <>
-          <h2>Choose a date</h2>
+          <h2>Choose a date to meet with {elder?.name}</h2>
           <StepList
             items={dates}
             getLabel={(d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
             onPick={pickDate}
-            emptyMessage="No upcoming Sundays are open at this campus right now."
-          />
-        </>
-      )}
-
-      {!loading && step === STEP.ELDER_PREFERENCE && (
-        <>
-          <h2>Do you have a preferred elder?</h2>
-          <div className="option-grid">
-            <button className="option-btn" onClick={wantsPreference}>Yes</button>
-            <button className="option-btn" onClick={noPreference}>No preference</button>
-          </div>
-        </>
-      )}
-
-      {!loading && step === STEP.ELDER_CHOICE && (
-        <>
-          <h2>Choose an Elder</h2>
-          <StepList
-            items={elders}
-            getLabel={(e) => e.name}
-            onPick={pickPreferredElder}
-            emptyMessage="No Elders found for this campus."
+            emptyMessage="No upcoming Sundays are open for this elder right now."
           />
         </>
       )}
@@ -397,18 +390,6 @@ export default function ElderScheduling() {
         <>
           <h2>Choose a time</h2>
           <StepList items={times} getLabel={(t) => t} onPick={pickTime} emptyMessage="No open times for that date." />
-        </>
-      )}
-
-      {!loading && step === STEP.ELDER && (
-        <>
-          <h2>Choose an Elder</h2>
-          <StepList
-            items={elders}
-            getLabel={(e) => e.name}
-            onPick={pickElder}
-            emptyMessage="No Elders available at that time."
-          />
         </>
       )}
 
@@ -443,7 +424,7 @@ export default function ElderScheduling() {
         </div>
       )}
 
-      {step !== STEP.CAMPUS && step !== STEP.PIN_GATE && (
+      {step !== STEP.CODE_GATE && step !== STEP.PREFERENCE && (
         <button className="restart-btn" onClick={reset}>
           Start over
         </button>

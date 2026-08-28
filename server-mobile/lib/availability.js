@@ -56,10 +56,40 @@ async function getEldersForCampus(campusName) {
   });
 }
 
-/** Public-safe elder lookup for the member wizard's "preferred elder" step. */
+/** Public-safe elder lookup for the member wizard's "preferred elder" step.
+ *  Includes a plain-language summary of each elder's recurring
+ *  availability pattern — not live open slots (that gets computed
+ *  per-elder, once one is actually picked, via getAvailableDates/
+ *  getAvailableTimes below). */
+function summarizeAvailabilityRows(rows) {
+  return rows.map((r) => {
+    const weeks = r.fields['Week of Month'] || [];
+    const slots = r.fields['Time Slots'] || [];
+    const day = r.fields['Day of Week'] || '';
+    const weekLabel = weeks.includes('Every Week')
+      ? `Every ${day}`
+      : weeks.length > 0
+        ? `${weeks.join(', ')} ${day}`
+        : day;
+    const timeLabel = SLOT_ORDER.filter((s) => slots.includes(s)).join(', ') || '(no times set)';
+    return `${weekLabel} at ${timeLabel}`;
+  });
+}
+
 async function getEldersForCampusPublic(campusName) {
   const elders = await getEldersForCampus(campusName);
-  return elders.map((e) => ({ id: e.id, name: e.fields['Full Name'] }));
+  const elderNames = elders.map((e) => e.fields['Full Name']);
+  if (elderNames.length === 0) return [];
+
+  const allAvailRows = await listRecords(config.airtable.tables.availability, {
+    filterByFormula: `OR(${elderNames.map((n) => `{Elder Name} = '${escapeFormulaValue(n)}'`).join(', ')})`,
+  });
+
+  return elders.map((e) => {
+    const name = e.fields['Full Name'];
+    const rows = allAvailRows.filter((r) => r.fields['Elder Name'] === name);
+    return { id: e.id, name, availability: summarizeAvailabilityRows(rows) };
+  });
 }
 
 /** Fetch Availability rows for a list of elder names, for a specific day of week. */
@@ -93,10 +123,11 @@ async function getConfirmedAppointments(dateStr, campusName) {
  * Returns up to config.scheduling.weeksAhead upcoming dates for a given
  * day-of-week (default Sunday) where at least one elder at the campus has
  * an open slot — and which fall at least MIN_LEAD_DAYS after classDate.
+ * If elderName is given, narrows to that one elder's open slots only.
  */
-async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate) {
+async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate, elderName) {
   const elders = await getEldersForCampus(campusName);
-  const elderNames = elders.map((e) => e.fields['Full Name']);
+  const elderNames = elderName ? [elderName] : elders.map((e) => e.fields['Full Name']);
   if (elderNames.length === 0) return [];
 
   const today = new Date();
@@ -269,6 +300,18 @@ async function createSundayOptOut({ campusName, memberName, memberEmail, notes }
   });
 }
 
+/** "None of these elders/times work for me" escape hatch from the
+ *  preferred-elder step. */
+async function createEngagementRequest({ campusName, memberName, memberEmail, notes }) {
+  return createRecord(config.airtable.tables.engagementRequests, {
+    'Member Name': memberName,
+    'Member Email': memberEmail,
+    Campus: campusName,
+    Notes: notes || '',
+    'Created At': new Date().toISOString(),
+  });
+}
+
 module.exports = {
   getAvailableDates,
   getAvailableTimes,
@@ -276,6 +319,7 @@ module.exports = {
   getEldersForCampusPublic,
   createAppointment,
   createSundayOptOut,
+  createEngagementRequest,
   weekOfMonth,
   dayName,
 };

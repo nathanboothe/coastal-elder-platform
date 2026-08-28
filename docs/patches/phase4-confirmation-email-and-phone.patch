@@ -1,0 +1,263 @@
+diff --git a/client-mobile/src/app/confirmation.tsx b/client-mobile/src/app/confirmation.tsx
+index f23873d..75292a3 100644
+--- a/client-mobile/src/app/confirmation.tsx
++++ b/client-mobile/src/app/confirmation.tsx
+@@ -34,6 +34,7 @@ export default function ConfirmationScreen() {
+ 
+   const [memberName, setMemberName] = useState('');
+   const [memberEmail, setMemberEmail] = useState('');
++  const [memberPhone, setMemberPhone] = useState('');
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+ 
+@@ -53,6 +54,7 @@ export default function ConfirmationScreen() {
+         timeSlot: time,
+         memberName: memberName.trim(),
+         memberEmail: memberEmail.trim(),
++        memberPhone: memberPhone.trim() || undefined,
+       });
+       // Only navigate to the success screen once the backend has actually
+       // confirmed the slot — if it was taken in the meantime, the error
+@@ -122,6 +124,15 @@ export default function ConfirmationScreen() {
+             autoCorrect={false}
+             keyboardType="email-address"
+           />
++
++          <Text style={styles.formLabel}>Your Phone Number (optional)</Text>
++          <TextInput
++            style={styles.input}
++            value={memberPhone}
++            onChangeText={(text) => setMemberPhone(text)}
++            placeholder="(757) 555-0100"
++            keyboardType="phone-pad"
++          />
+         </View>
+ 
+         {error && <Text style={styles.errorText}>{error}</Text>}
+diff --git a/client-mobile/src/lib/api.ts b/client-mobile/src/lib/api.ts
+index e094872..b843d61 100644
+--- a/client-mobile/src/lib/api.ts
++++ b/client-mobile/src/lib/api.ts
+@@ -339,6 +339,7 @@ export async function createAppointment(input: {
+   timeSlot: string;
+   memberName: string;
+   memberEmail: string;
++  memberPhone?: string;
+ }): Promise<{ emailSent: boolean }> {
+   const response = await fetch(`${API_BASE}/appointments`, {
+     method: 'POST',
+diff --git a/client-web/src/modules/ElderScheduling.jsx b/client-web/src/modules/ElderScheduling.jsx
+index c326ce4..82e3d0e 100644
+--- a/client-web/src/modules/ElderScheduling.jsx
++++ b/client-web/src/modules/ElderScheduling.jsx
+@@ -66,6 +66,7 @@ export default function ElderScheduling() {
+ 
+   const [memberName, setMemberName] = useState('');
+   const [memberEmail, setMemberEmail] = useState('');
++  const [memberPhone, setMemberPhone] = useState('');
+   const [notes, setNotes] = useState('');
+   const [emailSent, setEmailSent] = useState(true);
+ 
+@@ -200,6 +201,7 @@ export default function ElderScheduling() {
+         timeSlot: time,
+         memberName,
+         memberEmail,
++        memberPhone,
+       }),
+     })
+       .then((res) => {
+@@ -240,7 +242,7 @@ export default function ElderScheduling() {
+   return (
+     <div className="wizard">
+       <img src="/logo.png" alt="Coastal Church" className="logo-img" />
+-      <h1>Schedule a Membership Meeting</h1>
++      <h1>Elder Scheduling</h1>
+ 
+       {step !== STEP.PIN_GATE && (
+         <div className="breadcrumb">
+@@ -421,6 +423,10 @@ export default function ElderScheduling() {
+             Your email
+             <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
+           </label>
++          <label>
++            Your phone number (optional)
++            <input type="tel" value={memberPhone} onChange={(e) => setMemberPhone(e.target.value)} />
++          </label>
+           <button type="submit">Confirm appointment</button>
+         </form>
+       )}
+diff --git a/server-mobile/lib/availability.js b/server-mobile/lib/availability.js
+index 69d6591..0c8719b 100644
+--- a/server-mobile/lib/availability.js
++++ b/server-mobile/lib/availability.js
+@@ -235,7 +235,7 @@ async function getAvailableElders(campusId, campusName, dateStr, timeSlot) {
+  * transactions, so this mirrors the original's best-effort approach rather
+  * than a stronger guarantee.
+  */
+-async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail }) {
++async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone }) {
+   const appts = await getConfirmedAppointments(date, campusName);
+   const conflict = appts.some(
+     (a) => a.fields['Elder Name'] === elderName && a.fields['Time Slot'] === timeSlot
+@@ -247,6 +247,9 @@ async function createAppointment({ campusName, elderName, date, timeSlot, member
+   return createRecord(config.airtable.tables.appointments, {
+     'Member Name': memberName,
+     'Member Email': memberEmail,
++    // Optional — the confirmation screen doesn't require it, so it may
++    // be absent. Omit rather than write an empty string to Airtable.
++    ...(memberPhone ? { 'Member Phone': memberPhone } : {}),
+     Campus: campusName,
+     'Elder Name': elderName,
+     Date: date,
+diff --git a/server-mobile/routes/elderScheduling.js b/server-mobile/routes/elderScheduling.js
+index e6d1ab4..4f9ef89 100644
+--- a/server-mobile/routes/elderScheduling.js
++++ b/server-mobile/routes/elderScheduling.js
+@@ -90,12 +90,12 @@ router.get('/elders', schedulerAuth.requireSchedulerAuth, async (req, res, next)
+ 
+ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+   try {
+-    const { campusName, elderName, date, timeSlot, memberName, memberEmail } = req.body;
++    const { campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone } = req.body;
+     if (!campusName || !elderName || !date || !timeSlot || !memberName || !memberEmail) {
+       return res.status(400).json({ error: 'Missing required fields' });
+     }
+ 
+-    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail });
++    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone });
+ 
+     // Look up the elder's email for the confirmation.
+     const elderRecords = await listRecords(config.airtable.tables.elders, {
+@@ -105,6 +105,37 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+ 
+     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+ 
++    // Weekday + month + day, matching how the booking wizard itself
++    // displays the date on-screen. The UTC-bug pattern applies here too:
++    // `date` arrives as a bare YYYY-MM-DD, which needs T00:00:00 appended
++    // before constructing a Date or it can parse a day early in
++    // negative-UTC-offset zones.
++    const formattedDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
++      weekday: 'long',
++      month: 'long',
++      day: 'numeric',
++    });
++
++    // INTERIM template (Aug 2026) — mirrors server/routes/elderScheduling.js
++    // (kept as a literal duplicate, not shared code, since server-mobile/
++    // is a temporary folder pending Phase 3's mobile cutover — see the
++    // unified-platform-roadmap). Replaces the terse placeholder body for
++    // the member-facing email only, until per-elder custom templates
++    // (Phase 4) exist. Elder- and OME-facing emails intentionally stay
++    // as their short existing versions for now.
++    const memberBody =
++      `Thank you for scheduling an appointment with ${elderName} on ${formattedDate} at ${timeSlot}. ` +
++      `Please meet him at the welcome center on your campus. Any of our First Impressions team ` +
++      `members can help connect the two of you if needed.\n\n` +
++      `${elderName} is also receiving a notification of this appointment. If you need to reach ` +
++      `him for any reason, his email address is ${elderEmail || '(not on file)'}.\n\n` +
++      `If he needs to reach you, he will use the email or phone number with which you registered. ` +
++      `If they are not correctly shown below, please be sure to reach out to him to let him know.\n\n` +
++      `${memberEmail}\n${memberPhone || '(no phone number provided)'}\n\n` +
++      `If either of you are unable to reach one another, our Office of Membership and Engagement ` +
++      `is available to help at any time. Their email is engagement@gocoastal.org and the phone ` +
++      `number is 757.867.5683.`;
++
+     // The booking itself already succeeded above — that's the part that
+     // matters. Email is a secondary effect: if it fails, log it
+     // server-side and tell the client via `emailSent: false`, but don't
+@@ -115,7 +146,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+         mail.sendMail({
+           to: memberEmail,
+           subject: 'Your meeting with an Elder is confirmed',
+-          body: `Your meeting is confirmed.\n\n${summary}`,
++          body: memberBody,
+         }),
+         elderEmail
+           ? mail.sendMail({
+diff --git a/server/lib/availability.js b/server/lib/availability.js
+index 72a1815..5607bb6 100644
+--- a/server/lib/availability.js
++++ b/server/lib/availability.js
+@@ -233,7 +233,7 @@ const SLOT_ORDER = [
+  * to close the race condition between a user viewing options and submitting).
+  * Throws if the elder/date/time is no longer available.
+  */
+-async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail }) {
++async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone }) {
+   const appts = await getConfirmedAppointments(date, campusName);
+   const conflict = appts.some(
+     (a) => a.fields['Elder Name'] === elderName && a.fields['Time Slot'] === timeSlot
+@@ -245,6 +245,9 @@ async function createAppointment({ campusName, elderName, date, timeSlot, member
+   return createRecord(config.airtable.tables.appointments, {
+     'Member Name': memberName,
+     'Member Email': memberEmail,
++    // Optional — the confirmation form doesn't require it, so it may be
++    // absent. Omit rather than write an empty string to Airtable.
++    ...(memberPhone ? { 'Member Phone': memberPhone } : {}),
+     Campus: campusName,
+     'Elder Name': elderName,
+     Date: date,
+diff --git a/server/routes/elderScheduling.js b/server/routes/elderScheduling.js
+index fecbba1..d476bc3 100644
+--- a/server/routes/elderScheduling.js
++++ b/server/routes/elderScheduling.js
+@@ -100,12 +100,12 @@ router.get('/elders', schedulerAuth.requireSchedulerAuth, async (req, res, next)
+ 
+ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+   try {
+-    const { campusName, elderName, date, timeSlot, memberName, memberEmail } = req.body;
++    const { campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone } = req.body;
+     if (!campusName || !elderName || !date || !timeSlot || !memberName || !memberEmail) {
+       return res.status(400).json({ error: 'Missing required fields' });
+     }
+ 
+-    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail });
++    await availability.createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone });
+ 
+     const elderRecords = await listRecords(config.airtable.tables.elders, {
+       filterByFormula: `{Full Name} = '${elderName.replace(/'/g, "\\'")}'`,
+@@ -114,6 +114,34 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+ 
+     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+ 
++    // Weekday + month + day, matching how the booking wizard itself
++    // displays the date on-screen. The UTC-bug pattern applies here too:
++    // `date` arrives as a bare YYYY-MM-DD, which needs T00:00:00 appended
++    // before constructing a Date or it can parse a day early in
++    // negative-UTC-offset zones.
++    const formattedDate = new Date(`${date}T00:00:00`).toLocaleDateString('en-US', {
++      weekday: 'long',
++      month: 'long',
++      day: 'numeric',
++    });
++
++    // INTERIM template (Aug 2026) — replaces the terse placeholder body
++    // for the member-facing email only, until per-elder custom templates
++    // (Phase 4) exist. Elder- and OME-facing emails intentionally stay
++    // as their short existing versions for now.
++    const memberBody =
++      `Thank you for scheduling an appointment with ${elderName} on ${formattedDate} at ${timeSlot}. ` +
++      `Please meet him at the welcome center on your campus. Any of our First Impressions team ` +
++      `members can help connect the two of you if needed.\n\n` +
++      `${elderName} is also receiving a notification of this appointment. If you need to reach ` +
++      `him for any reason, his email address is ${elderEmail || '(not on file)'}.\n\n` +
++      `If he needs to reach you, he will use the email or phone number with which you registered. ` +
++      `If they are not correctly shown below, please be sure to reach out to him to let him know.\n\n` +
++      `${memberEmail}\n${memberPhone || '(no phone number provided)'}\n\n` +
++      `If either of you are unable to reach one another, our Office of Membership and Engagement ` +
++      `is available to help at any time. Their email is engagement@gocoastal.org and the phone ` +
++      `number is 757.867.5683.`;
++
+     // The booking itself already succeeded above — that's the part that
+     // matters. Email is a secondary effect: if it fails, log it
+     // server-side and tell the client via `emailSent: false`, but don't
+@@ -124,7 +152,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+         mail.sendMail({
+           to: memberEmail,
+           subject: 'Your meeting with an Elder is confirmed',
+-          body: `Your meeting is confirmed.\n\n${summary}`,
++          body: memberBody,
+         }),
+         elderEmail
+           ? mail.sendMail({

@@ -1,0 +1,1973 @@
+diff --git a/client-mobile/src/app/book.tsx b/client-mobile/src/app/book.tsx
+deleted file mode 100644
+index 7bf36b0..0000000
+--- a/client-mobile/src/app/book.tsx
++++ /dev/null
+@@ -1,169 +0,0 @@
+-import { useLocalSearchParams, useRouter } from 'expo-router';
+-import { useEffect, useState } from 'react';
+-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+-import { SafeAreaView } from 'react-native-safe-area-context';
+-
+-import { fetchCampuses, type Campus } from '@/lib/api';
+-
+-const COASTAL_BLUE = '#407DA8';
+-
+-export default function BookScreen() {
+-  const { classDate } = useLocalSearchParams<{ classDate?: string }>();
+-  const [campuses, setCampuses] = useState<Campus[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [error, setError] = useState(false);
+-  const [selectedCampus, setSelectedCampus] = useState<Campus | null>(null);
+-  const router = useRouter();
+-
+-  useEffect(() => {
+-    loadCampuses();
+-  }, []);
+-
+-  async function loadCampuses() {
+-    setLoading(true);
+-    setError(false);
+-    try {
+-      const data = await fetchCampuses();
+-      setCampuses(data);
+-    } catch (err) {
+-      console.error(err);
+-      setError(true);
+-    } finally {
+-      setLoading(false);
+-    }
+-  }
+-
+-  return (
+-    <SafeAreaView style={styles.safeArea}>
+-      <View style={styles.container}>
+-        <Text style={styles.title}>Select Your Campus</Text>
+-
+-        {loading && (
+-          <View style={styles.centerBox}>
+-            <ActivityIndicator size="large" color={COASTAL_BLUE} />
+-          </View>
+-        )}
+-
+-        {!loading && error && (
+-          <View style={styles.centerBox}>
+-            <Text style={styles.errorText}>
+-              Couldn't load campuses. Check your connection and try again.
+-            </Text>
+-            <Pressable style={styles.retryButton} onPress={loadCampuses}>
+-              <Text style={styles.retryButtonText}>Retry</Text>
+-            </Pressable>
+-          </View>
+-        )}
+-
+-        {!loading && !error && (
+-          <>
+-            <View style={styles.grid}>
+-              {campuses.map((campus) => {
+-                const isSelected = campus.id === selectedCampus?.id;
+-                return (
+-                  <Pressable
+-                    key={campus.id}
+-                    onPress={() => setSelectedCampus(campus)}
+-                    style={[styles.campusButton, isSelected && styles.campusButtonSelected]}
+-                  >
+-                    <Text
+-                      style={[
+-                        styles.campusButtonText,
+-                        isSelected && styles.campusButtonTextSelected,
+-                      ]}
+-                    >
+-                      {campus.name}
+-                    </Text>
+-                  </Pressable>
+-                );
+-              })}
+-            </View>
+-
+-            {selectedCampus && (
+-              <View style={styles.confirmation}>
+-                <Text style={styles.confirmationText}>Selected: {selectedCampus.name}</Text>
+-              </View>
+-            )}
+-          </>
+-        )}
+-
+-        <Pressable
+-          disabled={!selectedCampus}
+-          style={[styles.continueButton, !selectedCampus && styles.continueButtonDisabled]}
+-          onPress={() => {
+-            if (!selectedCampus) return;
+-            router.push({
+-              pathname: '/select-date',
+-              params: { campus: selectedCampus.name, classDate },
+-            });
+-          }}
+-        >
+-          <Text style={styles.continueButtonText}>Continue</Text>
+-        </Pressable>
+-      </View>
+-    </SafeAreaView>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  safeArea: { flex: 1, backgroundColor: '#fff' },
+-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
+-  title: {
+-    fontSize: 22,
+-    fontWeight: '700',
+-    color: COASTAL_BLUE,
+-    textAlign: 'center',
+-    marginBottom: 24,
+-  },
+-  centerBox: { alignItems: 'center', paddingVertical: 40, gap: 12 },
+-  errorText: { color: '#c0392b', textAlign: 'center', fontSize: 14 },
+-  retryButton: {
+-    backgroundColor: COASTAL_BLUE,
+-    borderRadius: 8,
+-    paddingVertical: 10,
+-    paddingHorizontal: 20,
+-  },
+-  retryButtonText: { color: '#fff', fontWeight: '600' },
+-  grid: {
+-    flexDirection: 'row',
+-    flexWrap: 'wrap',
+-    justifyContent: 'space-between',
+-    rowGap: 12,
+-  },
+-  campusButton: {
+-    width: '48%',
+-    borderWidth: 1.5,
+-    borderColor: COASTAL_BLUE,
+-    borderRadius: 10,
+-    paddingVertical: 16,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-  },
+-  campusButtonSelected: { backgroundColor: COASTAL_BLUE },
+-  campusButtonText: {
+-    color: COASTAL_BLUE,
+-    fontSize: 15,
+-    fontWeight: '600',
+-    textAlign: 'center',
+-  },
+-  campusButtonTextSelected: { color: '#fff' },
+-  confirmation: {
+-    marginTop: 24,
+-    backgroundColor: '#EAF1F6',
+-    borderLeftWidth: 4,
+-    borderLeftColor: COASTAL_BLUE,
+-    borderRadius: 6,
+-    padding: 12,
+-  },
+-  confirmationText: { color: COASTAL_BLUE, fontWeight: '600' },
+-  continueButton: {
+-    marginTop: 'auto',
+-    marginBottom: 24,
+-    backgroundColor: COASTAL_BLUE,
+-    borderRadius: 10,
+-    paddingVertical: 16,
+-    alignItems: 'center',
+-  },
+-  continueButtonDisabled: { backgroundColor: '#B8CBD8' },
+-  continueButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+-});
+diff --git a/client-mobile/src/app/confirm-campus.tsx b/client-mobile/src/app/confirm-campus.tsx
+index 09b5dac..46b78ca 100644
+--- a/client-mobile/src/app/confirm-campus.tsx
++++ b/client-mobile/src/app/confirm-campus.tsx
+@@ -4,7 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
+ 
+ const COASTAL_BLUE = '#407DA8';
+ 
+-export default function ConfirmCampusScreen() {
++function formatDate(iso: string): string {
++  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
++}
++
++// Campus and class date are both derived entirely from the WAC code (see
++// code.tsx) — this screen states that back to the member and asks about a
++// preferred elder next. There is deliberately no "choose a different
++// campus" fallback here anymore: the code is the source of truth.
++export default function PreferenceScreen() {
+   const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
+   const router = useRouter();
+ 
+@@ -13,25 +21,28 @@ export default function ConfirmCampusScreen() {
+       <View style={styles.container}>
+         <View style={styles.messageBox}>
+           <Text style={styles.messageText}>
+-            The code entered indicates you attended "We Are Coastal" at the {campus} campus. Tap
+-            "Next" to continue or tap "Choose a different campus" to create an appointment at an
+-            alternate campus.
++            The code you entered indicates that you attended We Are Coastal on {formatDate(classDate)} at{' '}
++            {campus}. Do you have a preferred elder you would like to meet with?
+           </Text>
+         </View>
+ 
+         <View style={styles.buttons}>
+           <Pressable
+             style={styles.primaryButton}
+-            onPress={() => router.push({ pathname: '/select-date', params: { campus, classDate } })}
++            onPress={() =>
++              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '1' } })
++            }
+           >
+-            <Text style={styles.primaryButtonText}>Next</Text>
++            <Text style={styles.primaryButtonText}>Yes</Text>
+           </Pressable>
+ 
+           <Pressable
+             style={styles.secondaryButton}
+-            onPress={() => router.push({ pathname: '/book', params: { classDate } })}
++            onPress={() =>
++              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '0' } })
++            }
+           >
+-            <Text style={styles.secondaryButtonText}>Choose a different campus</Text>
++            <Text style={styles.secondaryButtonText}>No preference</Text>
+           </Pressable>
+         </View>
+       </View>
+diff --git a/client-mobile/src/app/engagement.tsx b/client-mobile/src/app/engagement.tsx
+new file mode 100644
+index 0000000..f2670bd
+--- /dev/null
++++ b/client-mobile/src/app/engagement.tsx
+@@ -0,0 +1,138 @@
++import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
++import { useState } from 'react';
++import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
++import { SafeAreaView } from 'react-native-safe-area-context';
++
++import { submitContactEngagement } from '@/lib/api';
++
++const COASTAL_BLUE = '#407DA8';
++
++export default function EngagementScreen() {
++  const { campus } = useLocalSearchParams<{ campus: string }>();
++  const router = useRouter();
++
++  const [memberName, setMemberName] = useState('');
++  const [memberEmail, setMemberEmail] = useState('');
++  const [notes, setNotes] = useState('');
++  const [submitting, setSubmitting] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  const [submitted, setSubmitted] = useState(false);
++
++  async function handleSubmit() {
++    if (!campus) return;
++    if (!memberName.trim() || !memberEmail.trim()) {
++      setError('Please enter your name and email.');
++      return;
++    }
++    setSubmitting(true);
++    setError(null);
++    try {
++      await submitContactEngagement({
++        campusName: campus,
++        memberName: memberName.trim(),
++        memberEmail: memberEmail.trim(),
++        notes: notes.trim() || undefined,
++      });
++      setSubmitted(true);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : 'Failed to submit your request.');
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  if (submitted) {
++    return (
++      <SafeAreaView style={styles.safeArea}>
++        <Stack.Screen options={{ title: 'Request Sent' }} />
++        <View style={styles.container}>
++          <Text style={styles.title}>Thank you</Text>
++          <Text style={styles.subtitle}>
++            Our engagement team will follow up to help find a time that works.
++          </Text>
++          <Pressable style={styles.submitButton} onPress={() => router.replace('/')}>
++            <Text style={styles.submitButtonText}>Done</Text>
++          </Pressable>
++        </View>
++      </SafeAreaView>
++    );
++  }
++
++  return (
++    <SafeAreaView style={styles.safeArea}>
++      <Stack.Screen options={{ title: 'Contact Engagement' }} />
++      <View style={styles.container}>
++        <Text style={styles.title}>Let us know how to reach you</Text>
++
++        <View style={styles.form}>
++          <TextInput
++            style={styles.input}
++            value={memberName}
++            onChangeText={(t) => {
++              setMemberName(t);
++              setError(null);
++            }}
++            placeholder="Full name"
++            autoCapitalize="words"
++          />
++          <TextInput
++            style={styles.input}
++            value={memberEmail}
++            onChangeText={(t) => {
++              setMemberEmail(t);
++              setError(null);
++            }}
++            placeholder="you@example.com"
++            autoCapitalize="none"
++            autoCorrect={false}
++            keyboardType="email-address"
++          />
++          <TextInput
++            style={[styles.input, styles.notesInput]}
++            value={notes}
++            onChangeText={setNotes}
++            placeholder="What would help? (optional)"
++            multiline
++          />
++
++          {error && <Text style={styles.errorText}>{error}</Text>}
++
++          <Pressable
++            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
++            onPress={handleSubmit}
++            disabled={submitting}
++          >
++            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
++          </Pressable>
++        </View>
++      </View>
++    </SafeAreaView>
++  );
++}
++
++const styles = StyleSheet.create({
++  safeArea: { flex: 1, backgroundColor: '#fff' },
++  container: { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
++  title: { fontSize: 20, fontWeight: '700', color: COASTAL_BLUE, textAlign: 'center', marginBottom: 12 },
++  subtitle: { fontSize: 14, color: '#6b7c88', textAlign: 'center', marginBottom: 32 },
++  form: { gap: 10 },
++  input: {
++    borderWidth: 1.5,
++    borderColor: COASTAL_BLUE,
++    borderRadius: 8,
++    paddingVertical: 12,
++    paddingHorizontal: 14,
++    fontSize: 15,
++  },
++  notesInput: { minHeight: 70, textAlignVertical: 'top' },
++  errorText: { color: '#c0392b', fontSize: 13, textAlign: 'center' },
++  submitButton: {
++    backgroundColor: COASTAL_BLUE,
++    borderRadius: 10,
++    paddingVertical: 16,
++    alignItems: 'center',
++    marginTop: 8,
++  },
++  submitButtonDisabled: { opacity: 0.7 },
++  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
++});
+diff --git a/client-mobile/src/app/select-date.tsx b/client-mobile/src/app/select-date.tsx
+index c232f58..f14fe1a 100644
+--- a/client-mobile/src/app/select-date.tsx
++++ b/client-mobile/src/app/select-date.tsx
+@@ -26,7 +26,11 @@ function formatDate(iso: string): string {
+ }
+ 
+ export default function SelectDateScreen() {
+-  const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
++  const { campus, classDate, elder } = useLocalSearchParams<{
++    campus: string;
++    classDate: string;
++    elder: string;
++  }>();
+   const router = useRouter();
+   const [mode, setMode] = useState<'choose' | 'sunday' | 'cant-meet'>('choose');
+ 
+@@ -56,7 +60,7 @@ export default function SelectDateScreen() {
+     setLoading(true);
+     setError(false);
+     try {
+-      const data = await fetchDates(campus, classDate, 'Sunday');
++      const data = await fetchDates(campus, classDate, 'Sunday', elder);
+       setDates(data);
+     } catch (err) {
+       console.error(err);
+@@ -93,7 +97,10 @@ export default function SelectDateScreen() {
+     <SafeAreaView style={styles.safeArea}>
+       <Stack.Screen options={{ title: campus ?? 'Select Date' }} />
+       <View style={styles.container}>
+-        <Text style={styles.subtitle}>{campus}</Text>
++        <Text style={styles.subtitle}>
++          {campus}
++          {elder ? ` — with ${elder}` : ''}
++        </Text>
+         <Text style={styles.title}>When can you meet?</Text>
+ 
+         {mode === 'choose' && (
+@@ -226,7 +233,7 @@ export default function SelectDateScreen() {
+               if (!selectedDate || !campus) return;
+               router.push({
+                 pathname: '/select-time',
+-                params: { campus, date: selectedDate },
++                params: { campus, date: selectedDate, elder },
+               });
+             }}
+           >
+diff --git a/client-mobile/src/app/select-elder-preference.tsx b/client-mobile/src/app/select-elder-preference.tsx
+new file mode 100644
+index 0000000..4e4af67
+--- /dev/null
++++ b/client-mobile/src/app/select-elder-preference.tsx
+@@ -0,0 +1,138 @@
++import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
++import { useEffect, useState } from 'react';
++import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
++import { SafeAreaView } from 'react-native-safe-area-context';
++
++import { fetchCampusElders, type Elder } from '@/lib/api';
++
++const COASTAL_BLUE = '#407DA8';
++
++export default function SelectElderPreferenceScreen() {
++  const { campus, classDate, preferred } = useLocalSearchParams<{
++    campus: string;
++    classDate: string;
++    preferred: string;
++  }>();
++  const router = useRouter();
++  const [elders, setElders] = useState<Elder[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState(false);
++
++  useEffect(() => {
++    loadElders();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [campus]);
++
++  async function loadElders() {
++    if (!campus) return;
++    setLoading(true);
++    setError(false);
++    try {
++      const data = await fetchCampusElders(campus);
++      setElders(data);
++    } catch (err) {
++      console.error(err);
++      setError(true);
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  function pickElder(elder: Elder) {
++    router.push({
++      pathname: '/select-date',
++      params: { campus, classDate, elder: elder.name },
++    });
++  }
++
++  return (
++    <SafeAreaView style={styles.safeArea}>
++      <Stack.Screen options={{ title: preferred === '1' ? 'Choose Your Elder' : 'Elders At Your Campus' }} />
++      <View style={styles.container}>
++        <Text style={styles.subtitle}>{campus}</Text>
++        <Text style={styles.title}>
++          {preferred === '1' ? 'Choose your preferred elder' : 'Here are the elders at your campus'}
++        </Text>
++
++        {loading && (
++          <View style={styles.centerBox}>
++            <ActivityIndicator size="large" color={COASTAL_BLUE} />
++          </View>
++        )}
++
++        {!loading && error && (
++          <View style={styles.centerBox}>
++            <Text style={styles.errorText}>Couldn't load elders. Check your connection and try again.</Text>
++            <Pressable style={styles.retryButton} onPress={loadElders}>
++              <Text style={styles.retryButtonText}>Retry</Text>
++            </Pressable>
++          </View>
++        )}
++
++        {!loading && !error && elders.length === 0 && (
++          <View style={styles.centerBox}>
++            <Text style={styles.errorText}>No Elders found for this campus.</Text>
++          </View>
++        )}
++
++        {!loading && !error && elders.length > 0 && (
++          <View style={styles.elderList}>
++            {elders.map((elder) => (
++              <Pressable key={elder.id} style={styles.elderButton} onPress={() => pickElder(elder)}>
++                <Text style={styles.elderButtonText}>{elder.name}</Text>
++                <Text style={styles.elderAvailabilityText}>
++                  {elder.availability && elder.availability.length > 0
++                    ? elder.availability.join(' · ')
++                    : 'Availability not yet set'}
++                </Text>
++              </Pressable>
++            ))}
++          </View>
++        )}
++
++        {!loading && (
++          <Pressable
++            style={styles.engagementLink}
++            onPress={() => router.push({ pathname: '/engagement', params: { campus } })}
++          >
++            <Text style={styles.engagementLinkText}>None of these work for me</Text>
++          </Pressable>
++        )}
++      </View>
++    </SafeAreaView>
++  );
++}
++
++const styles = StyleSheet.create({
++  safeArea: { flex: 1, backgroundColor: '#fff' },
++  container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
++  subtitle: { textAlign: 'center', color: '#6b7c88', fontSize: 14, marginBottom: 4 },
++  title: {
++    fontSize: 18,
++    fontWeight: '700',
++    color: COASTAL_BLUE,
++    textAlign: 'center',
++    marginBottom: 24,
++  },
++  centerBox: { alignItems: 'center', paddingVertical: 40, gap: 12 },
++  errorText: { color: '#c0392b', textAlign: 'center', fontSize: 13 },
++  retryButton: {
++    backgroundColor: COASTAL_BLUE,
++    borderRadius: 8,
++    paddingVertical: 10,
++    paddingHorizontal: 20,
++  },
++  retryButtonText: { color: '#fff', fontWeight: '600' },
++  elderList: { gap: 12 },
++  elderButton: {
++    borderWidth: 1.5,
++    borderColor: COASTAL_BLUE,
++    borderRadius: 10,
++    paddingVertical: 14,
++    paddingHorizontal: 16,
++  },
++  elderButtonText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '700' },
++  elderAvailabilityText: { color: '#6b7c88', fontSize: 12, marginTop: 4 },
++  engagementLink: { marginTop: 24, alignItems: 'center', paddingVertical: 8 },
++  engagementLinkText: { color: '#6b7c88', fontSize: 13, textDecorationLine: 'underline' },
++});
+diff --git a/client-mobile/src/app/select-elder.tsx b/client-mobile/src/app/select-elder.tsx
+deleted file mode 100644
+index 18b0d12..0000000
+--- a/client-mobile/src/app/select-elder.tsx
++++ /dev/null
+@@ -1,185 +0,0 @@
+-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+-import { useEffect, useState } from 'react';
+-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+-import { SafeAreaView } from 'react-native-safe-area-context';
+-
+-import { fetchElders, type Elder } from '@/lib/api';
+-
+-const COASTAL_BLUE = '#407DA8';
+-
+-function formatDate(iso: string): string {
+-  return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+-}
+-
+-function toApiDate(iso: string): string {
+-  return iso.split('T')[0]; // YYYY-MM-DD, what the backend expects
+-}
+-
+-export default function SelectElderScreen() {
+-  const { campus, date, time } = useLocalSearchParams<{
+-    campus: string;
+-    date: string;
+-    time: string;
+-  }>();
+-  const router = useRouter();
+-  const [elders, setElders] = useState<Elder[]>([]);
+-  const [loading, setLoading] = useState(true);
+-  const [error, setError] = useState(false);
+-  const [selectedElder, setSelectedElder] = useState<Elder | null>(null);
+-
+-  useEffect(() => {
+-    loadElders();
+-  }, [campus, date, time]);
+-
+-  async function loadElders() {
+-    if (!campus || !date || !time) return;
+-    setLoading(true);
+-    setError(false);
+-    try {
+-      const data = await fetchElders(campus, toApiDate(date), time);
+-      setElders(data);
+-    } catch (err) {
+-      console.error(err);
+-      setError(true);
+-    } finally {
+-      setLoading(false);
+-    }
+-  }
+-
+-  return (
+-    <SafeAreaView style={styles.safeArea}>
+-      <Stack.Screen options={{ title: 'Select an Elder' }} />
+-      <View style={styles.container}>
+-        <Text style={styles.subtitle}>
+-          {campus} — {formatDate(date)} at {time}
+-        </Text>
+-        <Text style={styles.title}>Who would you like to meet with?</Text>
+-
+-        {loading && (
+-          <View style={styles.centerBox}>
+-            <ActivityIndicator size="large" color={COASTAL_BLUE} />
+-          </View>
+-        )}
+-
+-        {!loading && error && (
+-          <View style={styles.centerBox}>
+-            <Text style={styles.errorText}>
+-              Couldn't load elders. Check your connection and try again.
+-            </Text>
+-            <Pressable style={styles.retryButton} onPress={loadElders}>
+-              <Text style={styles.retryButtonText}>Retry</Text>
+-            </Pressable>
+-          </View>
+-        )}
+-
+-        {!loading && !error && elders.length === 0 && (
+-          <View style={styles.centerBox}>
+-            <Text style={styles.errorText}>
+-              No elders are available at this time. Try a different time slot.
+-            </Text>
+-          </View>
+-        )}
+-
+-        {!loading && !error && elders.length > 0 && (
+-          <>
+-            <View style={styles.elderList}>
+-              {elders.map((elder) => {
+-                const isSelected = elder.id === selectedElder?.id;
+-                return (
+-                  <Pressable
+-                    key={elder.id}
+-                    onPress={() => setSelectedElder(elder)}
+-                    style={[styles.elderButton, isSelected && styles.elderButtonSelected]}
+-                  >
+-                    <Text
+-                      style={[
+-                        styles.elderButtonText,
+-                        isSelected && styles.elderButtonTextSelected,
+-                      ]}
+-                    >
+-                      {elder.name}
+-                    </Text>
+-                  </Pressable>
+-                );
+-              })}
+-            </View>
+-
+-            {selectedElder && (
+-              <View style={styles.confirmation}>
+-                <Text style={styles.confirmationText}>
+-                  Meeting with: {selectedElder.name}
+-                </Text>
+-              </View>
+-            )}
+-          </>
+-        )}
+-
+-        <Pressable
+-          disabled={!selectedElder}
+-          style={[styles.continueButton, !selectedElder && styles.continueButtonDisabled]}
+-          onPress={() => {
+-            if (!selectedElder || !campus || !date || !time) return;
+-            router.push({
+-              pathname: '/confirmation',
+-              params: { campus, date, time, elder: selectedElder.name },
+-            });
+-          }}
+-        >
+-          <Text style={styles.continueButtonText}>Confirm Appointment</Text>
+-        </Pressable>
+-      </View>
+-    </SafeAreaView>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  safeArea: { flex: 1, backgroundColor: '#fff' },
+-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+-  subtitle: { textAlign: 'center', color: '#6b7c88', fontSize: 14, marginBottom: 4 },
+-  title: {
+-    fontSize: 20,
+-    fontWeight: '700',
+-    color: COASTAL_BLUE,
+-    textAlign: 'center',
+-    marginBottom: 24,
+-  },
+-  centerBox: { alignItems: 'center', paddingVertical: 40, gap: 12 },
+-  errorText: { color: '#c0392b', textAlign: 'center', fontSize: 14 },
+-  retryButton: {
+-    backgroundColor: COASTAL_BLUE,
+-    borderRadius: 8,
+-    paddingVertical: 10,
+-    paddingHorizontal: 20,
+-  },
+-  retryButtonText: { color: '#fff', fontWeight: '600' },
+-  elderList: { gap: 12 },
+-  elderButton: {
+-    borderWidth: 1.5,
+-    borderColor: COASTAL_BLUE,
+-    borderRadius: 10,
+-    paddingVertical: 16,
+-    alignItems: 'center',
+-  },
+-  elderButtonSelected: { backgroundColor: COASTAL_BLUE },
+-  elderButtonText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '600' },
+-  elderButtonTextSelected: { color: '#fff' },
+-  confirmation: {
+-    marginTop: 24,
+-    backgroundColor: '#EAF1F6',
+-    borderLeftWidth: 4,
+-    borderLeftColor: COASTAL_BLUE,
+-    borderRadius: 6,
+-    padding: 12,
+-  },
+-  confirmationText: { color: COASTAL_BLUE, fontWeight: '600' },
+-  continueButton: {
+-    marginTop: 'auto',
+-    marginBottom: 24,
+-    backgroundColor: COASTAL_BLUE,
+-    borderRadius: 10,
+-    paddingVertical: 16,
+-    alignItems: 'center',
+-  },
+-  continueButtonDisabled: { backgroundColor: '#B8CBD8' },
+-  continueButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+-});
+\ No newline at end of file
+diff --git a/client-mobile/src/app/select-time.tsx b/client-mobile/src/app/select-time.tsx
+index 994850a..c830fa1 100644
+--- a/client-mobile/src/app/select-time.tsx
++++ b/client-mobile/src/app/select-time.tsx
+@@ -20,7 +20,7 @@ function toApiDate(iso: string): string {
+ }
+ 
+ export default function SelectTimeScreen() {
+-  const { campus, date } = useLocalSearchParams<{ campus: string; date: string }>();
++  const { campus, date, elder } = useLocalSearchParams<{ campus: string; date: string; elder: string }>();
+   const router = useRouter();
+   const [times, setTimes] = useState<string[]>([]);
+   const [loading, setLoading] = useState(true);
+@@ -36,7 +36,7 @@ export default function SelectTimeScreen() {
+     setLoading(true);
+     setError(false);
+     try {
+-      const data = await fetchTimes(campus, toApiDate(date));
++      const data = await fetchTimes(campus, toApiDate(date), elder);
+       setTimes(data);
+     } catch (err) {
+       console.error(err);
+@@ -111,10 +111,10 @@ export default function SelectTimeScreen() {
+           disabled={!selectedTime}
+           style={[styles.continueButton, !selectedTime && styles.continueButtonDisabled]}
+           onPress={() => {
+-            if (!selectedTime || !campus || !date) return;
++            if (!selectedTime || !campus || !date || !elder) return;
+             router.push({
+-              pathname: '/select-elder',
+-              params: { campus, date, time: selectedTime },
++              pathname: '/confirmation',
++              params: { campus, date, time: selectedTime, elder },
+             });
+           }}
+         >
+diff --git a/client-mobile/src/lib/api.ts b/client-mobile/src/lib/api.ts
+index b843d61..967ed07 100644
+--- a/client-mobile/src/lib/api.ts
++++ b/client-mobile/src/lib/api.ts
+@@ -14,6 +14,7 @@ export type Campus = {
+ export type Elder = {
+   id: string;
+   name: string;
++  availability?: string[];
+ };
+ 
+ // --- Session state ---
+@@ -309,9 +310,11 @@ export async function submitSundayOptOut(input: {
+ export async function fetchDates(
+   campusName: string,
+   classDate: string,
+-  dayOfWeek: string = 'Sunday'
++  dayOfWeek: string = 'Sunday',
++  elderName?: string
+ ): Promise<string[]> {
+   const params = new URLSearchParams({ campusName, classDate, dayOfWeek });
++  if (elderName) params.set('elderName', elderName);
+   const response = await fetch(`${API_BASE}/dates?${params.toString()}`, {
+     headers: authHeaders(),
+   });
+@@ -321,8 +324,9 @@ export async function fetchDates(
+   return response.json();
+ }
+ 
+-export async function fetchTimes(campusName: string, date: string): Promise<string[]> {
++export async function fetchTimes(campusName: string, date: string, elderName?: string): Promise<string[]> {
+   const params = new URLSearchParams({ campusName, date });
++  if (elderName) params.set('elderName', elderName);
+   const response = await fetch(`${API_BASE}/times?${params.toString()}`, {
+     headers: authHeaders(),
+   });
+@@ -332,6 +336,39 @@ export async function fetchTimes(campusName: string, date: string): Promise<stri
+   return response.json();
+ }
+ 
++/** Elders at a campus, with a plain-language summary of each one's
++ *  recurring availability pattern — used for the preferred-elder step,
++ *  before any date/time has been picked. */
++export async function fetchCampusElders(campusName: string): Promise<Elder[]> {
++  const params = new URLSearchParams({ campusName });
++  const response = await fetch(`${API_BASE}/campus-elders?${params.toString()}`, {
++    headers: authHeaders(),
++  });
++  if (!response.ok) {
++    throw new Error(`Failed to load elders (${response.status})`);
++  }
++  return response.json();
++}
++
++/** "None of these elders/times work for me" escape hatch. */
++export async function submitContactEngagement(input: {
++  campusName: string;
++  memberName: string;
++  memberEmail: string;
++  notes?: string;
++}): Promise<{ emailSent: boolean }> {
++  const response = await fetch(`${API_BASE}/contact-engagement`, {
++    method: 'POST',
++    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
++    body: JSON.stringify(input),
++  });
++  if (!response.ok) {
++    const body = await response.json().catch(() => ({}) as { error?: string });
++    throw new Error(body.error || `Failed to submit your request (${response.status})`);
++  }
++  return response.json();
++}
++
+ export async function createAppointment(input: {
+   campusName: string;
+   elderName: string;
+@@ -340,7 +377,7 @@ export async function createAppointment(input: {
+   memberName: string;
+   memberEmail: string;
+   memberPhone?: string;
+-}): Promise<{ emailSent: boolean }> {
++}): Promise<{ emailSent: boolean; calendarEventCreated?: boolean }> {
+   const response = await fetch(`${API_BASE}/appointments`, {
+     method: 'POST',
+     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+diff --git a/client-web/src/modules/ElderScheduling.jsx b/client-web/src/modules/ElderScheduling.jsx
+index 82e3d0e..d99e68e 100644
+--- a/client-web/src/modules/ElderScheduling.jsx
++++ b/client-web/src/modules/ElderScheduling.jsx
+@@ -1,17 +1,16 @@
+ import { useState } from 'react';
+ 
+ const STEP = {
+-  PIN_GATE: 'pin_gate',
+-  CAMPUS: 'campus',
+-  CLASS_DATE: 'class_date',
++  CODE_GATE: 'code_gate',
++  PREFERENCE: 'preference',
++  ELDER_LIST: 'elder_list',
++  ENGAGEMENT_FORM: 'engagement_form',
++  ENGAGEMENT_DONE: 'engagement_done',
+   SUNDAY_CHECK: 'sunday_check',
+   OPT_OUT_FORM: 'opt_out_form',
+   OPT_OUT_DONE: 'opt_out_done',
+   DATE: 'date',
+-  ELDER_PREFERENCE: 'elder_preference',
+-  ELDER_CHOICE: 'elder_choice',
+   TIME: 'time',
+-  ELDER: 'elder',
+   MEMBER_FORM: 'member_form',
+   CONFIRMED: 'confirmed',
+ };
+@@ -28,7 +27,7 @@ async function api(path, options) {
+   return data;
+ }
+ 
+-function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
++function StepList({ items, getLabel, getSubLabel, onPick, emptyMessage, gridClassName }) {
+   if (items.length === 0) {
+     return <p className="empty-message">{emptyMessage}</p>;
+   }
+@@ -37,6 +36,11 @@ function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
+       {items.map((item, i) => (
+         <button key={i} className="option-btn" onClick={() => onPick(item)}>
+           {getLabel(item)}
++          {getSubLabel && (
++            <span style={{ display: 'block', fontWeight: 400, fontSize: '11px', marginTop: 4, textTransform: 'none' }}>
++              {getSubLabel(item)}
++            </span>
++          )}
+         </button>
+       ))}
+     </div>
+@@ -44,25 +48,28 @@ function StepList({ items, getLabel, onPick, emptyMessage, gridClassName }) {
+ }
+ 
+ export default function ElderScheduling() {
+-  const [step, setStep] = useState(STEP.PIN_GATE);
++  const [step, setStep] = useState(STEP.CODE_GATE);
+   const [error, setError] = useState(null);
+   const [loading, setLoading] = useState(false);
+ 
+-  const [pin, setPin] = useState('');
+-  const [pinError, setPinError] = useState(null);
++  const [code, setCode] = useState('');
++  const [codeError, setCodeError] = useState(null);
+ 
+-  const [campuses, setCampuses] = useState([]);
+-  const [campus, setCampus] = useState(null); // { id, name }
++  // Derived entirely from the WAC code — never asked of the member directly.
++  const [campus, setCampus] = useState(null); // { name }
+   const [classDate, setClassDate] = useState('');
+ 
++  const [wantsPreferred, setWantsPreferred] = useState(null); // true | false, drives ELDER_LIST heading only
++
++  const [elderList, setElderList] = useState([]);
++
+   const [dates, setDates] = useState([]);
+   const [date, setDate] = useState(null);
+ 
+   const [times, setTimes] = useState([]);
+   const [time, setTime] = useState(null);
+ 
+-  const [elders, setElders] = useState([]);
+-  const [elder, setElder] = useState(null);
++  const [elder, setElder] = useState(null); // { id, name }
+ 
+   const [memberName, setMemberName] = useState('');
+   const [memberEmail, setMemberEmail] = useState('');
+@@ -71,46 +78,56 @@ export default function ElderScheduling() {
+   const [emailSent, setEmailSent] = useState(true);
+ 
+   function reset() {
+-    setStep(STEP.CAMPUS);
+-    setCampus(null);
+-    setClassDate('');
++    setStep(STEP.PREFERENCE);
++    setWantsPreferred(null);
+     setDate(null);
+     setTime(null);
+     setElder(null);
+     setMemberName('');
+     setMemberEmail('');
++    setMemberPhone('');
+     setNotes('');
+     setError(null);
+   }
+ 
+-  function submitPin(ev) {
++  function submitCode(ev) {
+     ev.preventDefault();
+     setLoading(true);
+-    setPinError(null);
+-    api('/scheduler-auth', { method: 'POST', body: JSON.stringify({ code: pin }) })
+-      .then(() => api('/campuses'))
++    setCodeError(null);
++    api('/scheduler-auth', { method: 'POST', body: JSON.stringify({ code }) })
+       .then((data) => {
+-        setCampuses([...data].sort((a, b) => a.name.localeCompare(b.name)));
+-        setStep(STEP.CAMPUS);
++        setCampus({ name: data.campus });
++        setClassDate(data.classDate);
++        setStep(STEP.PREFERENCE);
+       })
+-      .catch((e) => setPinError(e.message))
++      .catch((e) => setCodeError(e.message))
+       .finally(() => setLoading(false));
+   }
+ 
+-  function pickCampus(c) {
+-    setCampus(c);
+-    setStep(STEP.CLASS_DATE);
++  function loadElderList(preferred) {
++    setWantsPreferred(preferred);
++    setLoading(true);
++    setError(null);
++    api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
++      .then((list) => {
++        setElderList(list);
++        setStep(STEP.ELDER_LIST);
++      })
++      .catch((e) => setError(e.message))
++      .finally(() => setLoading(false));
+   }
+ 
+-  function submitClassDate(cd) {
+-    setClassDate(cd);
++  function pickElder(e) {
++    setElder(e);
+     setStep(STEP.SUNDAY_CHECK);
+   }
+ 
+   function pickSunday() {
+     setLoading(true);
+     setError(null);
+-    api(`/dates?campusName=${encodeURIComponent(campus.name)}&dayOfWeek=Sunday&classDate=${classDate}`)
++    api(
++      `/dates?campusName=${encodeURIComponent(campus.name)}&dayOfWeek=Sunday&classDate=${classDate}&elderName=${encodeURIComponent(elder.name)}`
++    )
+       .then((d) => {
+         setDates(d);
+         setStep(STEP.DATE);
+@@ -121,70 +138,21 @@ export default function ElderScheduling() {
+ 
+   function pickDate(d) {
+     setDate(d);
+-    setStep(STEP.ELDER_PREFERENCE);
+-  }
+-
+-  function noPreference() {
+-    setLoading(true);
+-    setError(null);
+-    api(`/times?campusName=${encodeURIComponent(campus.name)}&date=${date}`)
+-      .then((t) => {
+-        setTimes(t);
+-        setStep(STEP.TIME);
+-      })
+-      .catch((e) => setError(e.message))
+-      .finally(() => setLoading(false));
+-  }
+-
+-  function wantsPreference() {
+-    setLoading(true);
+-    setError(null);
+-    api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
+-      .then((list) => {
+-        setElders(list);
+-        setStep(STEP.ELDER_CHOICE);
+-      })
+-      .catch((e) => setError(e.message))
+-      .finally(() => setLoading(false));
+-  }
+-
+-  function pickPreferredElder(e) {
+-    setElder(e); // marks the elder as already locked in for pickTime() below
+     setLoading(true);
+     setError(null);
+     api(
+-      `/times?campusName=${encodeURIComponent(campus.name)}&date=${date}&elderName=${encodeURIComponent(e.name)}`
++      `/times?campusName=${encodeURIComponent(campus.name)}&date=${d}&elderName=${encodeURIComponent(elder.name)}`
+     )
+       .then((t) => {
+         setTimes(t);
+         setStep(STEP.TIME);
+       })
+-      .catch((e2) => setError(e2.message))
++      .catch((e) => setError(e.message))
+       .finally(() => setLoading(false));
+   }
+ 
+   function pickTime(t) {
+     setTime(t);
+-    if (elder) {
+-      // Preferred elder already chosen back in ELDER_CHOICE — skip the elder step entirely.
+-      setStep(STEP.MEMBER_FORM);
+-      return;
+-    }
+-    setLoading(true);
+-    setError(null);
+-    api(
+-      `/elders?campusName=${encodeURIComponent(campus.name)}&date=${date}&timeSlot=${encodeURIComponent(t)}`
+-    )
+-      .then((e) => {
+-        setElders(e);
+-        setStep(STEP.ELDER);
+-      })
+-      .catch((e) => setError(e.message))
+-      .finally(() => setLoading(false));
+-  }
+-
+-  function pickElder(e) {
+-    setElder(e);
+     setStep(STEP.MEMBER_FORM);
+   }
+ 
+@@ -210,7 +178,6 @@ export default function ElderScheduling() {
+       })
+       .catch((e) => {
+         setError(e.message);
+-        // If the slot was just taken, send them back to re-pick a time.
+         if (e.message.includes('just booked')) {
+           setStep(STEP.TIME);
+         }
+@@ -239,84 +206,132 @@ export default function ElderScheduling() {
+       .finally(() => setLoading(false));
+   }
+ 
++  function submitEngagementRequest(ev) {
++    ev.preventDefault();
++    setLoading(true);
++    setError(null);
++    api('/contact-engagement', {
++      method: 'POST',
++      body: JSON.stringify({
++        campusName: campus.name,
++        memberName,
++        memberEmail,
++        notes,
++      }),
++    })
++      .then((res) => {
++        setEmailSent(res.emailSent !== false);
++        setStep(STEP.ENGAGEMENT_DONE);
++      })
++      .catch((e) => setError(e.message))
++      .finally(() => setLoading(false));
++  }
++
++  const formattedClassDate = classDate
++    ? new Date(classDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
++    : '';
++
+   return (
+     <div className="wizard">
+       <img src="/logo.png" alt="Coastal Church" className="logo-img" />
+       <h1>Elder Scheduling</h1>
+ 
+-      {step !== STEP.PIN_GATE && (
++      {step !== STEP.CODE_GATE && (
+         <div className="breadcrumb">
+-          {campus && (
+-            <span className="crumb done">Campus: {campus.name}</span>
+-          )}
+-          {campus && step !== STEP.SUNDAY_CHECK && (
+-            <span className={date || step === STEP.OPT_OUT_FORM || step === STEP.OPT_OUT_DONE ? 'crumb done' : 'crumb'}>
+-              {step === STEP.OPT_OUT_FORM || step === STEP.OPT_OUT_DONE
+-                ? "Can't meet Sunday"
+-                : date
+-                  ? `Date: ${new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}`
+-                  : 'Date'}
++          {campus && <span className="crumb done">Campus: {campus.name}</span>}
++          {elder && <span className="crumb done">Elder: {elder.name}</span>}
++          {date && (
++            <span className="crumb done">
++              Date: {new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+             </span>
+           )}
+-          {date && <span className={time ? 'crumb done' : 'crumb'}>{time ? `Time: ${time}` : 'Time'}</span>}
+-          {time && <span className={elder ? 'crumb done' : 'crumb'}>{elder ? `Elder: ${elder.name}` : 'Elder'}</span>}
++          {time && <span className="crumb done">Time: {time}</span>}
+         </div>
+       )}
+ 
+       {error && <p className="error-message">{error}</p>}
+       {loading && <p className="loading-message">Loading…</p>}
+ 
+-      {!loading && step === STEP.PIN_GATE && (
+-        <form className="member-form" onSubmit={submitPin}>
+-          <h2>Enter PIN to schedule a meeting</h2>
++      {!loading && step === STEP.CODE_GATE && (
++        <form className="member-form" onSubmit={submitCode}>
++          <h2>Enter code to schedule a meeting</h2>
+           <input
+             type="text"
+             autoCapitalize="characters"
+-            value={pin}
+-            onChange={(e) => setPin(e.target.value)}
++            value={code}
++            onChange={(e) => setCode(e.target.value)}
+             autoFocus
+           />
+           <button type="submit">Continue</button>
+-          {pinError && <p className="error-message">{pinError}</p>}
++          {codeError && <p className="error-message">{codeError}</p>}
+         </form>
+       )}
+ 
+-      {!loading && step === STEP.CAMPUS && (
++      {!loading && step === STEP.PREFERENCE && (
++        <>
++          <h2>
++            The code you entered indicates that you attended We Are Coastal on {formattedClassDate} at{' '}
++            {campus?.name}. Do you have a preferred elder you would like to meet with?
++          </h2>
++          <div className="option-grid">
++            <button className="option-btn" onClick={() => loadElderList(true)}>
++              Yes
++            </button>
++            <button className="option-btn" onClick={() => loadElderList(false)}>
++              No preference
++            </button>
++          </div>
++        </>
++      )}
++
++      {!loading && step === STEP.ELDER_LIST && (
+         <>
+-          <h2>Select your campus</h2>
++          <h2>{wantsPreferred ? 'Choose your preferred elder' : 'Elders at your campus'}</h2>
+           <StepList
+-            items={campuses}
+-            getLabel={(c) => c.name}
+-            onPick={pickCampus}
+-            emptyMessage="No campuses found."
+-            gridClassName="campus-grid"
++            items={elderList}
++            getLabel={(e) => e.name}
++            getSubLabel={(e) => (e.availability && e.availability.length > 0 ? e.availability.join(' · ') : 'Availability not yet set')}
++            onPick={pickElder}
++            emptyMessage="No Elders found for this campus."
+           />
++          <button
++            className="restart-btn"
++            style={{ marginTop: '1.5rem' }}
++            onClick={() => setStep(STEP.ENGAGEMENT_FORM)}
++          >
++            None of these work for me
++          </button>
+         </>
+       )}
+ 
+-      {!loading && step === STEP.CLASS_DATE && (
+-        <form
+-          className="member-form"
+-          onSubmit={(e) => {
+-            e.preventDefault();
+-            submitClassDate(classDate);
+-          }}
+-        >
+-          <h2>When did you take the "We Are Coastal" class?</h2>
++      {!loading && step === STEP.ENGAGEMENT_FORM && (
++        <form className="member-form" onSubmit={submitEngagementRequest}>
++          <h2>Let us know how to reach you</h2>
+           <label>
+-            Class date
+-            <input
+-              type="date"
+-              required
+-              value={classDate}
+-              max={new Date().toISOString().slice(0, 10)}
+-              onChange={(e) => setClassDate(e.target.value)}
+-            />
++            Your name
++            <input required value={memberName} onChange={(e) => setMemberName(e.target.value)} />
++          </label>
++          <label>
++            Your email
++            <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
++          </label>
++          <label>
++            What would help? (optional)
++            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+           </label>
+-          <button type="submit">Next</button>
++          <button type="submit">Submit</button>
+         </form>
+       )}
+ 
++      {!loading && step === STEP.ENGAGEMENT_DONE && (
++        <div className="confirmation">
++          <p>Thank you — our engagement team will follow up to help find a time that works.</p>
++          {!emailSent && (
++            <p className="empty-message">(Note: the notification email couldn't be sent. The request itself was saved.)</p>
++          )}
++        </div>
++      )}
++
+       {!loading && step === STEP.SUNDAY_CHECK && (
+         <>
+           <h2>When can you meet?</h2>
+@@ -361,34 +376,12 @@ export default function ElderScheduling() {
+ 
+       {!loading && step === STEP.DATE && (
+         <>
+-          <h2>Choose a date</h2>
++          <h2>Choose a date to meet with {elder?.name}</h2>
+           <StepList
+             items={dates}
+             getLabel={(d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
+             onPick={pickDate}
+-            emptyMessage="No upcoming Sundays are open at this campus right now."
+-          />
+-        </>
+-      )}
+-
+-      {!loading && step === STEP.ELDER_PREFERENCE && (
+-        <>
+-          <h2>Do you have a preferred elder?</h2>
+-          <div className="option-grid">
+-            <button className="option-btn" onClick={wantsPreference}>Yes</button>
+-            <button className="option-btn" onClick={noPreference}>No preference</button>
+-          </div>
+-        </>
+-      )}
+-
+-      {!loading && step === STEP.ELDER_CHOICE && (
+-        <>
+-          <h2>Choose an Elder</h2>
+-          <StepList
+-            items={elders}
+-            getLabel={(e) => e.name}
+-            onPick={pickPreferredElder}
+-            emptyMessage="No Elders found for this campus."
++            emptyMessage="No upcoming Sundays are open for this elder right now."
+           />
+         </>
+       )}
+@@ -400,18 +393,6 @@ export default function ElderScheduling() {
+         </>
+       )}
+ 
+-      {!loading && step === STEP.ELDER && (
+-        <>
+-          <h2>Choose an Elder</h2>
+-          <StepList
+-            items={elders}
+-            getLabel={(e) => e.name}
+-            onPick={pickElder}
+-            emptyMessage="No Elders available at that time."
+-          />
+-        </>
+-      )}
+-
+       {!loading && step === STEP.MEMBER_FORM && (
+         <form className="member-form" onSubmit={submitAppointment}>
+           <h2>Your information</h2>
+@@ -443,7 +424,7 @@ export default function ElderScheduling() {
+         </div>
+       )}
+ 
+-      {step !== STEP.CAMPUS && step !== STEP.PIN_GATE && (
++      {step !== STEP.CODE_GATE && step !== STEP.PREFERENCE && (
+         <button className="restart-btn" onClick={reset}>
+           Start over
+         </button>
+diff --git a/server-mobile/config.js b/server-mobile/config.js
+index c1b4310..17a4c6d 100644
+--- a/server-mobile/config.js
++++ b/server-mobile/config.js
+@@ -18,6 +18,7 @@ module.exports = {
+       appointments: process.env.AIRTABLE_TABLE_APPOINTMENTS,
+       timeOff: process.env.AIRTABLE_TABLE_TIMEOFF,
+       sundayOptOut: process.env.AIRTABLE_TABLE_SUNDAY_OPTOUT,
++      engagementRequests: process.env.AIRTABLE_TABLE_ENGAGEMENT_REQUESTS || 'EngagementRequests',
+       wacCodes: process.env.AIRTABLE_TABLE_WAC_CODES,
+     },
+   },
+diff --git a/server-mobile/lib/availability.js b/server-mobile/lib/availability.js
+index 0c8719b..e9c7039 100644
+--- a/server-mobile/lib/availability.js
++++ b/server-mobile/lib/availability.js
+@@ -56,10 +56,40 @@ async function getEldersForCampus(campusName) {
+   });
+ }
+ 
+-/** Public-safe elder lookup for the member wizard's "preferred elder" step. */
++/** Public-safe elder lookup for the member wizard's "preferred elder" step.
++ *  Includes a plain-language summary of each elder's recurring
++ *  availability pattern — not live open slots (that gets computed
++ *  per-elder, once one is actually picked, via getAvailableDates/
++ *  getAvailableTimes below). */
++function summarizeAvailabilityRows(rows) {
++  return rows.map((r) => {
++    const weeks = r.fields['Week of Month'] || [];
++    const slots = r.fields['Time Slots'] || [];
++    const day = r.fields['Day of Week'] || '';
++    const weekLabel = weeks.includes('Every Week')
++      ? `Every ${day}`
++      : weeks.length > 0
++        ? `${weeks.join(', ')} ${day}`
++        : day;
++    const timeLabel = SLOT_ORDER.filter((s) => slots.includes(s)).join(', ') || '(no times set)';
++    return `${weekLabel} at ${timeLabel}`;
++  });
++}
++
+ async function getEldersForCampusPublic(campusName) {
+   const elders = await getEldersForCampus(campusName);
+-  return elders.map((e) => ({ id: e.id, name: e.fields['Full Name'] }));
++  const elderNames = elders.map((e) => e.fields['Full Name']);
++  if (elderNames.length === 0) return [];
++
++  const allAvailRows = await listRecords(config.airtable.tables.availability, {
++    filterByFormula: `OR(${elderNames.map((n) => `{Elder Name} = '${escapeFormulaValue(n)}'`).join(', ')})`,
++  });
++
++  return elders.map((e) => {
++    const name = e.fields['Full Name'];
++    const rows = allAvailRows.filter((r) => r.fields['Elder Name'] === name);
++    return { id: e.id, name, availability: summarizeAvailabilityRows(rows) };
++  });
+ }
+ 
+ /** Fetch Availability rows for a list of elder names, for a specific day of week. */
+@@ -93,10 +123,11 @@ async function getConfirmedAppointments(dateStr, campusName) {
+  * Returns up to config.scheduling.weeksAhead upcoming dates for a given
+  * day-of-week (default Sunday) where at least one elder at the campus has
+  * an open slot — and which fall at least MIN_LEAD_DAYS after classDate.
++ * If elderName is given, narrows to that one elder's open slots only.
+  */
+-async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate) {
++async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate, elderName) {
+   const elders = await getEldersForCampus(campusName);
+-  const elderNames = elders.map((e) => e.fields['Full Name']);
++  const elderNames = elderName ? [elderName] : elders.map((e) => e.fields['Full Name']);
+   if (elderNames.length === 0) return [];
+ 
+   const today = new Date();
+@@ -269,6 +300,18 @@ async function createSundayOptOut({ campusName, memberName, memberEmail, notes }
+   });
+ }
+ 
++/** "None of these elders/times work for me" escape hatch from the
++ *  preferred-elder step. */
++async function createEngagementRequest({ campusName, memberName, memberEmail, notes }) {
++  return createRecord(config.airtable.tables.engagementRequests, {
++    'Member Name': memberName,
++    'Member Email': memberEmail,
++    Campus: campusName,
++    Notes: notes || '',
++    'Created At': new Date().toISOString(),
++  });
++}
++
+ module.exports = {
+   getAvailableDates,
+   getAvailableTimes,
+@@ -276,6 +319,7 @@ module.exports = {
+   getEldersForCampusPublic,
+   createAppointment,
+   createSundayOptOut,
++  createEngagementRequest,
+   weekOfMonth,
+   dayName,
+ };
+diff --git a/server-mobile/lib/graphCalendar.js b/server-mobile/lib/graphCalendar.js
+new file mode 100644
+index 0000000..09b83ab
+--- /dev/null
++++ b/server-mobile/lib/graphCalendar.js
+@@ -0,0 +1,91 @@
++// lib/graphCalendar.js
++// Creates a calendar event on an elder's own Outlook calendar when a
++// member books an appointment with them, via Graph's application-only
++// client-credentials flow (same token/app registration as graphMail.js
++// and graphDirectory.js — see graphClient.js).
++//
++// Requires an additional APPLICATION permission on the existing app
++// registration: Calendars.ReadWrite, admin-consented. This is NOT
++// something this code can grant itself — it's a one-time manual step in
++// the Azure Portal (App registrations -> this app -> API permissions ->
++// Add a permission -> Microsoft Graph -> Application permissions ->
++// Calendars.ReadWrite -> Grant admin consent). Without that consent,
++// every call here fails with a 403 — which the caller treats the same
++// as a missing Object ID: log it, don't block the booking.
++//
++// Scoped per the original calendar-sync plan: title "Membership meeting
++// with {name}", Eastern time, normal visibility. 30-minute duration,
++// matching the wizard's 30-minute time-slot grid (SLOT_ORDER in
++// availability.js). Delete-on-cancel is NOT implemented here — there is
++// no appointment-cancellation feature yet for it to hook into.
++
++const { graphFetch } = require('./graphClient');
++
++const SLOT_ORDER = [
++  '7:30 AM', '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
++  '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM', '2:00 PM',
++  '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM', '5:30 PM',
++  '6:00 PM', '6:30 PM', '7:00 PM', '7:30 PM', '8:00 PM', '8:30 PM', '9:00 PM',
++  '9:30 PM', '10:00 PM',
++];
++
++/** Parses a "9:00 AM" style slot into 24-hour {hour, minute}. */
++function parseSlot(timeSlot) {
++  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(timeSlot.trim());
++  if (!match) throw new Error(`Unrecognized time slot format: ${timeSlot}`);
++  let hour = parseInt(match[1], 10);
++  const minute = parseInt(match[2], 10);
++  const meridiem = match[3].toUpperCase();
++  if (meridiem === 'PM' && hour !== 12) hour += 12;
++  if (meridiem === 'AM' && hour === 12) hour = 0;
++  return { hour, minute };
++}
++
++function pad(n) {
++  return String(n).padStart(2, '0');
++}
++
++/**
++ * Creates a 30-minute event on the elder's own Outlook calendar.
++ * Throws on failure — callers should catch this the same way they
++ * already catch email failures, and not let it block the booking.
++ *
++ * @param {Object} opts
++ * @param {string} opts.elderObjectId - the elder's M365 Object ID
++ * @param {string} opts.elderEmail - only used for a clearer error message
++ * @param {string} opts.memberName
++ * @param {string} opts.campusName
++ * @param {string} opts.date - YYYY-MM-DD
++ * @param {string} opts.timeSlot - e.g. "9:00 AM"
++ */
++async function createCalendarEvent({ elderObjectId, elderEmail, memberName, campusName, date, timeSlot }) {
++  if (!elderObjectId) {
++    throw new Error(`No M365 Object ID on file for elder (${elderEmail || 'unknown'}) — cannot create calendar event`);
++  }
++
++  const { hour, minute } = parseSlot(timeSlot);
++  const [year, month, day] = date.split('-').map((n) => parseInt(n, 10));
++
++  const startDateTime = `${date}T${pad(hour)}:${pad(minute)}:00`;
++  const endDate = new Date(Date.UTC(year, month - 1, day, hour, minute + 30));
++  const endDateTime = `${date}T${pad(endDate.getUTCHours())}:${pad(endDate.getUTCMinutes())}:00`;
++
++  const event = {
++    subject: `Membership meeting with ${memberName}`,
++    start: { dateTime: startDateTime, timeZone: 'Eastern Standard Time' },
++    end: { dateTime: endDateTime, timeZone: 'Eastern Standard Time' },
++    location: { displayName: `${campusName} — Welcome Center` },
++    sensitivity: 'normal',
++    body: {
++      contentType: 'Text',
++      content: `Membership meeting with ${memberName} at ${campusName}. Meet at the welcome center.`,
++    },
++  };
++
++  await graphFetch(`/users/${encodeURIComponent(elderObjectId)}/events`, {
++    method: 'POST',
++    body: JSON.stringify(event),
++  });
++}
++
++module.exports = { createCalendarEvent, SLOT_ORDER };
+diff --git a/server-mobile/routes/elderScheduling.js b/server-mobile/routes/elderScheduling.js
+index 4f9ef89..8d0aeb4 100644
+--- a/server-mobile/routes/elderScheduling.js
++++ b/server-mobile/routes/elderScheduling.js
+@@ -12,6 +12,7 @@ const express = require('express');
+ const { listRecords, createRecord, deleteRecords, getRecord } = require('../lib/airtable');
+ const availability = require('../lib/availability');
+ const mail = require('../lib/graphMail');
++const calendar = require('../lib/graphCalendar');
+ const schedulerAuth = require('../lib/schedulerAuth');
+ const wacCodes = require('../lib/wacCodes');
+ const config = require('../config');
+@@ -39,10 +40,10 @@ router.get('/campuses', schedulerAuth.requireSchedulerAuth, async (req, res, nex
+ 
+ router.get('/dates', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+   try {
+-    const { campusId, campusName, dayOfWeek, classDate } = req.query;
++    const { campusId, campusName, dayOfWeek, classDate, elderName } = req.query;
+     if (!campusName) return res.status(400).json({ error: 'campusName is required' });
+     if (!classDate) return res.status(400).json({ error: 'classDate is required' });
+-    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate);
++    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate, elderName);
+     res.json(dates);
+   } catch (err) {
+     next(err);
+@@ -102,6 +103,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+       filterByFormula: `{Full Name} = '${elderName.replace(/'/g, "\\'")}'`,
+     });
+     const elderEmail = elderRecords[0]?.fields?.['Email'];
++    const elderObjectId = elderRecords[0]?.fields?.['M365 Object ID'];
+ 
+     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+ 
+@@ -166,7 +168,25 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+       emailSent = false;
+     }
+ 
+-    res.status(201).json({ success: true, emailSent });
++    // M365 calendar sync — same non-blocking philosophy as email above.
++    // Most elder records still lack an M365 Object ID (Phase 4 backfill
++    // not yet run), so this is expected to no-op for most bookings today.
++    let calendarEventCreated = true;
++    try {
++      await calendar.createCalendarEvent({
++        elderObjectId,
++        elderEmail,
++        memberName,
++        campusName,
++        date,
++        timeSlot,
++      });
++    } catch (calErr) {
++      console.error('Booking saved, but calendar event failed:', calErr.message);
++      calendarEventCreated = false;
++    }
++
++    res.status(201).json({ success: true, emailSent, calendarEventCreated });
+   } catch (err) {
+     if (err.message === 'SLOT_NO_LONGER_AVAILABLE') {
+       return res.status(409).json({ error: 'That time was just booked by someone else. Please pick another.' });
+@@ -175,6 +195,35 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+   }
+ });
+ 
++// --- "None of these options work for me" -> engagement branch ---
++
++router.post('/contact-engagement', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
++  try {
++    const { campusName, memberName, memberEmail, notes } = req.body;
++    if (!campusName || !memberName || !memberEmail) {
++      return res.status(400).json({ error: 'Missing required fields' });
++    }
++
++    await availability.createEngagementRequest({ campusName, memberName, memberEmail, notes });
++
++    let emailSent = true;
++    try {
++      await mail.sendMail({
++        to: config.notifications.omeEmail,
++        subject: 'Member needs help finding an elder/time — Android app',
++        body: `A member didn't find an elder or time that worked for them via the Android app.\n\nCampus: ${campusName}\nMember: ${memberName} (${memberEmail})\nNotes: ${notes || '(none)'}`,
++      });
++    } catch (emailErr) {
++      console.error('Engagement request saved, but email failed:', emailErr);
++      emailSent = false;
++    }
++
++    res.status(201).json({ success: true, emailSent });
++  } catch (err) {
++    next(err);
++  }
++});
++
+ // --- Sunday opt-out branch ---
+ 
+ router.post('/sunday-optout', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+diff --git a/server/config.js b/server/config.js
+index 79db56c..5c206dd 100644
+--- a/server/config.js
++++ b/server/config.js
+@@ -26,6 +26,7 @@ module.exports = {
+       timeOff: 'TimeOff',
+       appointments: 'Appointments',
+       sundayOptOut: 'SundayOptOut',
++      engagementRequests: 'EngagementRequests',
+       // Shared with elder-android-backend — same underlying table, this
+       // repo just references it by name instead of table ID.
+       wacCodes: 'WACCodes',
+diff --git a/server/lib/availability.js b/server/lib/availability.js
+index 5607bb6..6b0ffa9 100644
+--- a/server/lib/availability.js
++++ b/server/lib/availability.js
+@@ -48,10 +48,39 @@ async function getEldersForCampus(campusName) {
+ /** Public-safe elder lookup for the member wizard's "preferred elder" step
+  *  (the existing /all-elders route is gated behind manageAuth, which is the
+  *  wrong gate for member-facing use, so this is the schedulerAuth-gated
+- *  equivalent, scoped to one campus). */
++ *  equivalent, scoped to one campus). Includes a plain-language summary of
++ *  each elder's recurring availability pattern — not live open slots (that
++ *  gets computed per-elder, once one is actually picked, via
++ *  getAvailableDates/getAvailableTimes below). */
++function summarizeAvailabilityRows(rows) {
++  return rows.map((r) => {
++    const weeks = r.fields['Week of Month'] || [];
++    const slots = r.fields['Time Slots'] || [];
++    const day = r.fields['Day of Week'] || '';
++    const weekLabel = weeks.includes('Every Week')
++      ? `Every ${day}`
++      : weeks.length > 0
++        ? `${weeks.join(', ')} ${day}`
++        : day;
++    const timeLabel = SLOT_ORDER.filter((s) => slots.includes(s)).join(', ') || '(no times set)';
++    return `${weekLabel} at ${timeLabel}`;
++  });
++}
++
+ async function getEldersForCampusPublic(campusName) {
+   const elders = await getEldersForCampus(campusName);
+-  return elders.map((e) => ({ id: e.id, name: e.fields['Full Name'] }));
++  const elderNames = elders.map((e) => e.fields['Full Name']);
++  if (elderNames.length === 0) return [];
++
++  const allAvailRows = await listRecords(config.airtable.tables.availability, {
++    filterByFormula: `OR(${elderNames.map((n) => `{Elder Name} = '${escapeFormulaValue(n)}'`).join(', ')})`,
++  });
++
++  return elders.map((e) => {
++    const name = e.fields['Full Name'];
++    const rows = allAvailRows.filter((r) => r.fields['Elder Name'] === name);
++    return { id: e.id, name, availability: summarizeAvailabilityRows(rows) };
++  });
+ }
+ 
+ /** Fetch Availability rows for a list of elder names, for a specific day of week. */
+@@ -85,6 +114,7 @@ async function getConfirmedAppointments(dateStr, campusName) {
+  * Returns up to config.scheduling.weeksAhead upcoming dates for a given
+  * day-of-week (default Sunday) where at least one elder at the campus has
+  * an open slot — and which fall at least MIN_LEAD_DAYS after classDate.
++ * If elderName is given, narrows to that one elder's open slots only.
+  *
+  * The search cursor starts at whichever is later: today, or
+  * (classDate + MIN_LEAD_DAYS). There's no upper bound on how far forward it
+@@ -92,9 +122,9 @@ async function getConfirmedAppointments(dateStr, campusName) {
+  * recent class date just means it walks further out before finding the
+  * first eligible Sunday, rather than coming back empty.
+  */
+-async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate) {
++async function getAvailableDates(campusId, campusName, dayOfWeek = 'Sunday', classDate, elderName) {
+   const elders = await getEldersForCampus(campusName);
+-  const elderNames = elders.map((e) => e.fields['Full Name']);
++  const elderNames = elderName ? [elderName] : elders.map((e) => e.fields['Full Name']);
+   if (elderNames.length === 0) return [];
+ 
+   const today = new Date();
+@@ -233,7 +263,7 @@ const SLOT_ORDER = [
+  * to close the race condition between a user viewing options and submitting).
+  * Throws if the elder/date/time is no longer available.
+  */
+-async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail, memberPhone }) {
++async function createAppointment({ campusName, elderName, date, timeSlot, memberName, memberEmail }) {
+   const appts = await getConfirmedAppointments(date, campusName);
+   const conflict = appts.some(
+     (a) => a.fields['Elder Name'] === elderName && a.fields['Time Slot'] === timeSlot
+@@ -245,9 +275,6 @@ async function createAppointment({ campusName, elderName, date, timeSlot, member
+   return createRecord(config.airtable.tables.appointments, {
+     'Member Name': memberName,
+     'Member Email': memberEmail,
+-    // Optional — the confirmation form doesn't require it, so it may be
+-    // absent. Omit rather than write an empty string to Airtable.
+-    ...(memberPhone ? { 'Member Phone': memberPhone } : {}),
+     Campus: campusName,
+     'Elder Name': elderName,
+     Date: date,
+@@ -267,6 +294,19 @@ async function createSundayOptOut({ campusName, memberName, memberEmail, notes }
+   });
+ }
+ 
++/** "None of these elders/times work for me" escape hatch from the
++ *  preferred-elder step — logged the same way Sunday opt-outs are, so
++ *  engagement has a record to follow up on manually. */
++async function createEngagementRequest({ campusName, memberName, memberEmail, notes }) {
++  return createRecord(config.airtable.tables.engagementRequests, {
++    'Member Name': memberName,
++    'Member Email': memberEmail,
++    Campus: campusName,
++    Notes: notes || '',
++    'Created At': new Date().toISOString(),
++  });
++}
++
+ module.exports = {
+   getAvailableDates,
+   getAvailableTimes,
+@@ -274,6 +314,7 @@ module.exports = {
+   getEldersForCampusPublic,
+   createAppointment,
+   createSundayOptOut,
++  createEngagementRequest,
+   weekOfMonth,
+   dayName,
+ };
+diff --git a/server/lib/graphCalendar.js b/server/lib/graphCalendar.js
+new file mode 100644
+index 0000000..09b83ab
+--- /dev/null
++++ b/server/lib/graphCalendar.js
+@@ -0,0 +1,91 @@
++// lib/graphCalendar.js
++// Creates a calendar event on an elder's own Outlook calendar when a
++// member books an appointment with them, via Graph's application-only
++// client-credentials flow (same token/app registration as graphMail.js
++// and graphDirectory.js — see graphClient.js).
++//
++// Requires an additional APPLICATION permission on the existing app
++// registration: Calendars.ReadWrite, admin-consented. This is NOT
++// something this code can grant itself — it's a one-time manual step in
++// the Azure Portal (App registrations -> this app -> API permissions ->
++// Add a permission -> Microsoft Graph -> Application permissions ->
++// Calendars.ReadWrite -> Grant admin consent). Without that consent,
++// every call here fails with a 403 — which the caller treats the same
++// as a missing Object ID: log it, don't block the booking.
++//
++// Scoped per the original calendar-sync plan: title "Membership meeting
++// with {name}", Eastern time, normal visibility. 30-minute duration,
++// matching the wizard's 30-minute time-slot grid (SLOT_ORDER in
++// availability.js). Delete-on-cancel is NOT implemented here — there is
++// no appointment-cancellation feature yet for it to hook into.
++
++const { graphFetch } = require('./graphClient');
++
++const SLOT_ORDER = [
++  '7:30 AM', '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
++  '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM', '2:00 PM',
++  '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM', '5:30 PM',
++  '6:00 PM', '6:30 PM', '7:00 PM', '7:30 PM', '8:00 PM', '8:30 PM', '9:00 PM',
++  '9:30 PM', '10:00 PM',
++];
++
++/** Parses a "9:00 AM" style slot into 24-hour {hour, minute}. */
++function parseSlot(timeSlot) {
++  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(timeSlot.trim());
++  if (!match) throw new Error(`Unrecognized time slot format: ${timeSlot}`);
++  let hour = parseInt(match[1], 10);
++  const minute = parseInt(match[2], 10);
++  const meridiem = match[3].toUpperCase();
++  if (meridiem === 'PM' && hour !== 12) hour += 12;
++  if (meridiem === 'AM' && hour === 12) hour = 0;
++  return { hour, minute };
++}
++
++function pad(n) {
++  return String(n).padStart(2, '0');
++}
++
++/**
++ * Creates a 30-minute event on the elder's own Outlook calendar.
++ * Throws on failure — callers should catch this the same way they
++ * already catch email failures, and not let it block the booking.
++ *
++ * @param {Object} opts
++ * @param {string} opts.elderObjectId - the elder's M365 Object ID
++ * @param {string} opts.elderEmail - only used for a clearer error message
++ * @param {string} opts.memberName
++ * @param {string} opts.campusName
++ * @param {string} opts.date - YYYY-MM-DD
++ * @param {string} opts.timeSlot - e.g. "9:00 AM"
++ */
++async function createCalendarEvent({ elderObjectId, elderEmail, memberName, campusName, date, timeSlot }) {
++  if (!elderObjectId) {
++    throw new Error(`No M365 Object ID on file for elder (${elderEmail || 'unknown'}) — cannot create calendar event`);
++  }
++
++  const { hour, minute } = parseSlot(timeSlot);
++  const [year, month, day] = date.split('-').map((n) => parseInt(n, 10));
++
++  const startDateTime = `${date}T${pad(hour)}:${pad(minute)}:00`;
++  const endDate = new Date(Date.UTC(year, month - 1, day, hour, minute + 30));
++  const endDateTime = `${date}T${pad(endDate.getUTCHours())}:${pad(endDate.getUTCMinutes())}:00`;
++
++  const event = {
++    subject: `Membership meeting with ${memberName}`,
++    start: { dateTime: startDateTime, timeZone: 'Eastern Standard Time' },
++    end: { dateTime: endDateTime, timeZone: 'Eastern Standard Time' },
++    location: { displayName: `${campusName} — Welcome Center` },
++    sensitivity: 'normal',
++    body: {
++      contentType: 'Text',
++      content: `Membership meeting with ${memberName} at ${campusName}. Meet at the welcome center.`,
++    },
++  };
++
++  await graphFetch(`/users/${encodeURIComponent(elderObjectId)}/events`, {
++    method: 'POST',
++    body: JSON.stringify(event),
++  });
++}
++
++module.exports = { createCalendarEvent, SLOT_ORDER };
+diff --git a/server/routes/elderScheduling.js b/server/routes/elderScheduling.js
+index d476bc3..c7c1153 100644
+--- a/server/routes/elderScheduling.js
++++ b/server/routes/elderScheduling.js
+@@ -18,6 +18,7 @@ const express = require('express');
+ const { listRecords, createRecord, deleteRecords, getRecord } = require('../lib/airtable');
+ const availability = require('../lib/availability');
+ const mail = require('../lib/graphMail');
++const calendar = require('../lib/graphCalendar');
+ const manageAuth = require('../lib/manageAuth');
+ const schedulerAuth = require('../lib/schedulerAuth');
+ const wacCodes = require('../lib/wacCodes');
+@@ -47,10 +48,10 @@ router.get('/campuses', schedulerAuth.requireSchedulerAuth, async (req, res, nex
+ 
+ router.get('/dates', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+   try {
+-    const { campusId, campusName, dayOfWeek, classDate } = req.query;
++    const { campusId, campusName, dayOfWeek, classDate, elderName } = req.query;
+     if (!campusName) return res.status(400).json({ error: 'campusName is required' });
+     if (!classDate) return res.status(400).json({ error: 'classDate is required' });
+-    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate);
++    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate, elderName);
+     res.json(dates);
+   } catch (err) {
+     next(err);
+@@ -111,6 +112,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+       filterByFormula: `{Full Name} = '${elderName.replace(/'/g, "\\'")}'`,
+     });
+     const elderEmail = elderRecords[0]?.fields?.['Email'];
++    const elderObjectId = elderRecords[0]?.fields?.['M365 Object ID'];
+ 
+     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+ 
+@@ -172,7 +174,27 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+       emailSent = false;
+     }
+ 
+-    res.status(201).json({ success: true, emailSent });
++    // M365 calendar sync — same non-blocking philosophy as email above.
++    // Most elder records still lack an M365 Object ID (Phase 4 backfill
++    // not yet run), so this is expected to no-op for most bookings today.
++    // That's fine: the booking and both emails already succeeded, this is
++    // a bonus on top, not a requirement.
++    let calendarEventCreated = true;
++    try {
++      await calendar.createCalendarEvent({
++        elderObjectId,
++        elderEmail,
++        memberName,
++        campusName,
++        date,
++        timeSlot,
++      });
++    } catch (calErr) {
++      console.error('Booking saved, but calendar event failed:', calErr.message);
++      calendarEventCreated = false;
++    }
++
++    res.status(201).json({ success: true, emailSent, calendarEventCreated });
+   } catch (err) {
+     if (err.message === 'SLOT_NO_LONGER_AVAILABLE') {
+       return res.status(409).json({ error: 'That time was just booked by someone else. Please pick another.' });
+@@ -181,6 +203,35 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+   }
+ });
+ 
++// --- "None of these options work for me" -> engagement branch ---
++
++router.post('/contact-engagement', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
++  try {
++    const { campusName, memberName, memberEmail, notes } = req.body;
++    if (!campusName || !memberName || !memberEmail) {
++      return res.status(400).json({ error: 'Missing required fields' });
++    }
++
++    await availability.createEngagementRequest({ campusName, memberName, memberEmail, notes });
++
++    let emailSent = true;
++    try {
++      await mail.sendMail({
++        to: config.notifications.omeEmail,
++        subject: 'Member needs help finding an elder/time',
++        body: `A member didn't find an elder or time that worked for them.\n\nCampus: ${campusName}\nMember: ${memberName} (${memberEmail})\nNotes: ${notes || '(none)'}`,
++      });
++    } catch (emailErr) {
++      console.error('Engagement request saved, but email failed:', emailErr);
++      emailSent = false;
++    }
++
++    res.status(201).json({ success: true, emailSent });
++  } catch (err) {
++    next(err);
++  }
++});
++
+ // --- Sunday opt-out branch ---
+ 
+ router.post('/sunday-optout', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
