@@ -290,7 +290,7 @@ export default function AvailabilityManager() {
     return (
       <div className="wizard">
         <img src="/logo.png" alt="Coastal Church" className="logo-img" />
-        <h1>Schedule a Membership Meeting — Manage Availability</h1>
+        <h1>Elder Scheduling — Manage Availability</h1>
         <p className="empty-message">Sign in with your Coastal Microsoft account to continue.</p>
 
         {authError && <p className="error-message">{authError}</p>}
@@ -315,7 +315,7 @@ export default function AvailabilityManager() {
     return (
       <div className="wizard">
         <img src="/logo.png" alt="Coastal Church" className="logo-img" />
-        <h1>Schedule a Membership Meeting — Manage Availability</h1>
+        <h1>Elder Scheduling — Manage Availability</h1>
         <p className="empty-message">Signed in as {myName}.</p>
 
         <div className="option-grid">

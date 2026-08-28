@@ -240,7 +240,7 @@ export default function ElderScheduling() {
   return (
     <div className="wizard">
       <img src="/logo.png" alt="Coastal Church" className="logo-img" />
-      <h1>Schedule a Membership Meeting</h1>
+      <h1>Elder Scheduling</h1>
 
       {step !== STEP.PIN_GATE && (
         <div className="breadcrumb">

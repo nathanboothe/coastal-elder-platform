@@ -11,7 +11,7 @@ export default function LandingScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <Text style={styles.title}>Coastal Church</Text>
-        <Text style={styles.subtitle}>Schedule a Membership Meeting</Text>
+        <Text style={styles.subtitle}>Elder Scheduling</Text>
 
         <View style={styles.form}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/code')}>
