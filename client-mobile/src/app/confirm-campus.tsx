@@ -48,7 +48,7 @@ export default function PreferenceScreen() {
       <View style={styles.container}>
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            The code you entered indicates that you attended We Are Coastal on{' '}
+            The code you entered indicates that you attended <Text style={styles.bold}>We Are Coastal</Text> on{' '}
             <Text style={styles.bold}>{formatDate(classDate)}</Text> at{' '}
             <Text style={styles.bold}>{campus}</Text>. Do you have a preferred elder you would like to meet
             with?

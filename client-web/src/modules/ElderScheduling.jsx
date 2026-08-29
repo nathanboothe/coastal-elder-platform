@@ -237,7 +237,7 @@ export default function ElderScheduling() {
       {!loading && step === STEP.PREFERENCE && (
         <>
           <h2>
-            The code you entered indicates that you attended We Are Coastal on{' '}
+            The code you entered indicates that you attended <strong>We Are Coastal</strong> on{' '}
             <strong>{formattedClassDate}</strong> at <strong>{campus?.name}</strong>. Do you have a preferred
             elder you would like to meet with?
           </h2>

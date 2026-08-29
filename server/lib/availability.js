@@ -311,7 +311,7 @@ async function createEngagementRequest({ campusName, memberName, memberEmail, no
  */
 const WINDOW_DAYS = 14;
 
-async function getAvailabilityWindow(campusName, elderName, classDate, dayOfWeek = 'Sunday') {
+async function getAvailabilityWindow(campusName, elderName, classDate) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
@@ -322,24 +322,35 @@ async function getAvailabilityWindow(campusName, elderName, classDate, dayOfWeek
     if (earliestAllowed > cursor) cursor = earliestAllowed;
   }
   cursor = new Date(cursor);
-  while (dayName(cursor) !== dayOfWeek) {
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
 
   const windowEnd = new Date(today);
   windowEnd.setUTCDate(windowEnd.getUTCDate() + WINDOW_DAYS);
 
-  const results = [];
-  while (cursor <= windowEnd) {
-    const dateStr = isoDate(cursor);
-    const times = await getAvailableTimes(null, campusName, dateStr, elderName);
-    if (times.length > 0) {
-      results.push({ date: dateStr, times });
-    }
-    cursor.setUTCDate(cursor.getUTCDate() + 7);
+  // Checks every day in the window, not just Sundays — an elder's
+  // Availability rows can specify any day of the week, and this was
+  // previously hardcoded to only ever walk Sundays, so any elder without
+  // Sunday availability showed nothing at all even if they had real open
+  // slots on other days. getAvailableTimes already correctly derives the
+  // day-of-week from the date it's given, so no other change is needed —
+  // just actually asking it about every date instead of skipping most of
+  // them.
+  //
+  // Checked in parallel (up to ~15 days) rather than one at a time, since
+  // a sequential round-trip per day would make this screen noticeably
+  // slow — each check is independent, so there's no reason to wait on
+  // one before starting the next.
+  const candidateDates = [];
+  for (let d = new Date(cursor); d <= windowEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+    candidateDates.push(isoDate(d));
   }
 
-  return results;
+  const perDayTimes = await Promise.all(
+    candidateDates.map((dateStr) => getAvailableTimes(null, campusName, dateStr, elderName))
+  );
+
+  return candidateDates
+    .map((date, i) => ({ date, times: perDayTimes[i] }))
+    .filter((day) => day.times.length > 0);
 }
 
 /**
