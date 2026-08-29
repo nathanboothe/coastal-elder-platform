@@ -326,31 +326,75 @@ async function getAvailabilityWindow(campusName, elderName, classDate) {
   const windowEnd = new Date(today);
   windowEnd.setUTCDate(windowEnd.getUTCDate() + WINDOW_DAYS);
 
-  // Checks every day in the window, not just Sundays — an elder's
-  // Availability rows can specify any day of the week, and this was
-  // previously hardcoded to only ever walk Sundays, so any elder without
-  // Sunday availability showed nothing at all even if they had real open
-  // slots on other days. getAvailableTimes already correctly derives the
-  // day-of-week from the date it's given, so no other change is needed —
-  // just actually asking it about every date instead of skipping most of
-  // them.
-  //
-  // Checked in parallel (up to ~15 days) rather than one at a time, since
-  // a sequential round-trip per day would make this screen noticeably
-  // slow — each check is independent, so there's no reason to wait on
-  // one before starting the next.
   const candidateDates = [];
   for (let d = new Date(cursor); d <= windowEnd; d.setUTCDate(d.getUTCDate() + 1)) {
     candidateDates.push(isoDate(d));
   }
+  if (candidateDates.length === 0) return [];
 
-  const perDayTimes = await Promise.all(
-    candidateDates.map((dateStr) => getAvailableTimes(null, campusName, dateStr, elderName))
-  );
+  // Three Airtable calls total for the whole window — this elder's full
+  // Availability, TimeOff, and confirmed Appointments — rather than three
+  // calls PER DAY. An earlier version called getAvailableTimes once per
+  // candidate date (up to ~15), which either ran sequentially (slow) or
+  // in parallel (which fires ~45 simultaneous Airtable requests and trips
+  // Airtable's rate limit, throwing and surfacing as a generic 500).
+  // Fetching once and computing every day's open slots in memory avoids
+  // both problems and is the fastest option besides.
+  const [availRows, timeOffRows, apptRows] = await Promise.all([
+    listRecords(config.airtable.tables.availability, {
+      filterByFormula: `{Elder Name} = '${escapeFormulaValue(elderName)}'`,
+    }),
+    listRecords(config.airtable.tables.timeOff, {
+      filterByFormula: `{Elder Name} = '${escapeFormulaValue(elderName)}'`,
+    }),
+    listRecords(config.airtable.tables.appointments, {
+      filterByFormula: `AND({Elder Name} = '${escapeFormulaValue(elderName)}', {Campus} = '${escapeFormulaValue(campusName)}', {Status} = 'Confirmed')`,
+    }),
+  ]);
 
-  return candidateDates
-    .map((date, i) => ({ date, times: perDayTimes[i] }))
-    .filter((day) => day.times.length > 0);
+  const bookedSlotsByDate = {};
+  for (const appt of apptRows) {
+    const d = appt.fields['Date'];
+    const slot = appt.fields['Time Slot'];
+    if (!bookedSlotsByDate[d]) bookedSlotsByDate[d] = new Set();
+    bookedSlotsByDate[d].add(slot);
+  }
+
+  const results = [];
+  for (const dateStr of candidateDates) {
+    const date = new Date(`${dateStr}T00:00:00.000Z`);
+    const dow = dayName(date);
+    const wom = weekOfMonth(date);
+
+    const matchingRows = availRows.filter((r) => {
+      const weeks = r.fields['Week of Month'] || [];
+      return r.fields['Day of Week'] === dow && (weeks.includes(wom) || weeks.includes('Every Week'));
+    });
+    if (matchingRows.length === 0) continue;
+
+    // TimeOff's Start Date/End Date are plain Airtable "date" fields, which
+    // the API returns as bare YYYY-MM-DD strings — safe to compare
+    // lexicographically against dateStr without constructing more Dates.
+    const onTimeOff = timeOffRows.some(
+      (t) => t.fields['Start Date'] <= dateStr && t.fields['End Date'] >= dateStr
+    );
+    if (onTimeOff) continue;
+
+    const booked = bookedSlotsByDate[dateStr] || new Set();
+    const openSlots = new Set();
+    for (const row of matchingRows) {
+      for (const slot of row.fields['Time Slots'] || []) {
+        if (!booked.has(slot)) openSlots.add(slot);
+      }
+    }
+
+    const times = SLOT_ORDER.filter((s) => openSlots.has(s));
+    if (times.length > 0) {
+      results.push({ date: dateStr, times });
+    }
+  }
+
+  return results;
 }
 
 /**
