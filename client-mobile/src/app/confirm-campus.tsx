@@ -48,9 +48,9 @@ export default function PreferenceScreen() {
       <View style={styles.container}>
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            the code you entered indicates that you attended we are coastal on{' '}
+            The code you entered indicates that you attended We Are Coastal on{' '}
             <Text style={styles.bold}>{formatDate(classDate)}</Text> at{' '}
-            <Text style={styles.bold}>{campus}</Text>. do you have a preferred elder you would like to meet
+            <Text style={styles.bold}>{campus}</Text>. Do you have a preferred elder you would like to meet
             with?
           </Text>
         </View>
@@ -62,14 +62,14 @@ export default function PreferenceScreen() {
             style={styles.primaryButton}
             onPress={() => router.push({ pathname: '/select-elder-preference', params: { campus, classDate } })}
           >
-            <Text style={styles.primaryButtonText}>yes</Text>
+            <Text style={styles.primaryButtonText}>Yes</Text>
           </Pressable>
 
           <Pressable style={styles.secondaryButton} onPress={chooseNoPreference} disabled={assigning}>
             {assigning ? (
               <ActivityIndicator color={COASTAL_BLUE} />
             ) : (
-              <Text style={styles.secondaryButtonText}>no preference</Text>
+              <Text style={styles.secondaryButtonText}>No preference</Text>
             )}
           </Pressable>
         </View>

@@ -31,26 +31,26 @@ export default function ConfirmedScreen() {
       <Stack.Screen options={{ title: 'Confirmed', headerBackVisible: false }} />
       <View style={styles.container}>
         <Text style={styles.checkmark}>✓</Text>
-        <Text style={styles.title}>you're all set!</Text>
+        <Text style={styles.title}>You're all set!</Text>
 
         <View style={styles.card}>
           <View style={styles.row}>
-            <Text style={styles.label}>campus</Text>
+            <Text style={styles.label}>Campus</Text>
             <Text style={styles.value}>{campus}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>date</Text>
+            <Text style={styles.label}>Date</Text>
             <Text style={styles.value}>{formatDate(date)}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>time</Text>
+            <Text style={styles.label}>Time</Text>
             <Text style={styles.value}>{time}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>elder</Text>
+            <Text style={styles.label}>Elder</Text>
             <Text style={styles.value}>{elder}</Text>
           </View>
         </View>
@@ -62,7 +62,7 @@ export default function ConfirmedScreen() {
         </Text>
 
         <Pressable style={styles.doneButton} onPress={() => router.replace('/')}>
-          <Text style={styles.doneButtonText}>done</Text>
+          <Text style={styles.doneButtonText}>Done</Text>
         </Pressable>
       </View>
     </SafeAreaView>

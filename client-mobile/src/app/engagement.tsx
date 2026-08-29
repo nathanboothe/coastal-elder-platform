@@ -46,12 +46,12 @@ export default function EngagementScreen() {
       <SafeAreaView style={styles.safeArea}>
         <Stack.Screen options={{ title: 'Request Sent' }} />
         <View style={styles.container}>
-          <Text style={styles.title}>thank you</Text>
+          <Text style={styles.title}>Thank you</Text>
           <Text style={styles.subtitle}>
             Our engagement team will follow up to help find a time that works.
           </Text>
           <Pressable style={styles.submitButton} onPress={() => router.replace('/')}>
-            <Text style={styles.submitButtonText}>done</Text>
+            <Text style={styles.submitButtonText}>Done</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -62,7 +62,7 @@ export default function EngagementScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: 'Contact Engagement' }} />
       <View style={styles.container}>
-        <Text style={styles.title}>let us know how to reach you</Text>
+        <Text style={styles.title}>Let us know how to reach you</Text>
 
         <View style={styles.form}>
           <TextInput
@@ -102,7 +102,7 @@ export default function EngagementScreen() {
             onPress={handleSubmit}
             disabled={submitting}
           >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>submit</Text>}
+            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
           </Pressable>
         </View>
       </View>

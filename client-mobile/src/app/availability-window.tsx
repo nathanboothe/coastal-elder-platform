@@ -64,15 +64,15 @@ export default function AvailabilityWindowScreen() {
 
         {!loading && error && (
           <View style={styles.centerBox}>
-            <Text style={styles.errorText}>couldn't load availability. check your connection and try again.</Text>
+            <Text style={styles.errorText}>Couldn't load availability. Check your connection and try again.</Text>
             <Pressable style={styles.retryButton} onPress={load}>
-              <Text style={styles.retryButtonText}>retry</Text>
+              <Text style={styles.retryButtonText}>Retry</Text>
             </Pressable>
           </View>
         )}
 
         {!loading && !error && days.length === 0 && (
-          <Text style={styles.errorText}>no open times for this elder in the next two weeks.</Text>
+          <Text style={styles.errorText}>No open times for this elder in the next two weeks.</Text>
         )}
 
         {!loading &&
@@ -96,13 +96,13 @@ export default function AvailabilityWindowScreen() {
               style={styles.fallbackButton}
               onPress={() => router.push({ pathname: '/select-elder-preference', params: { campus, classDate } })}
             >
-              <Text style={styles.fallbackButtonText}>none of these work — choose a different elder</Text>
+              <Text style={styles.fallbackButtonText}>None of these work — choose a different elder</Text>
             </Pressable>
             <Pressable
               style={styles.fallbackButton}
               onPress={() => router.push({ pathname: '/engagement', params: { campus } })}
             >
-              <Text style={styles.fallbackButtonText}>none of these work for me</Text>
+              <Text style={styles.fallbackButtonText}>None of these work for me</Text>
             </Pressable>
           </View>
         )}
