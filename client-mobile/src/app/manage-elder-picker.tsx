@@ -98,7 +98,7 @@ export default function ManageElderPickerScreen() {
               )}
               {syncSummary.duplicates.length > 0 && (
                 <Text style={styles.summaryLine}>
-                  ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group —
+                  ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group -
                   reported to the OME email for cleanup in M365.
                 </Text>
               )}

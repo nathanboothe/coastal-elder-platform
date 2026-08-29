@@ -263,13 +263,6 @@ export default function ElderScheduling() {
             ))}
           </div>
           {elderList.length === 0 && <p className="empty-message">No elders found for this campus.</p>}
-          <button
-            className="restart-btn"
-            style={{ marginTop: '1.5rem' }}
-            onClick={() => setStep(STEP.ENGAGEMENT_FORM)}
-          >
-            None of these work for me
-          </button>
         </>
       )}
 
@@ -294,7 +287,7 @@ export default function ElderScheduling() {
 
       {!loading && step === STEP.ENGAGEMENT_DONE && (
         <div className="confirmation">
-          <p>Thank you — our engagement team will follow up to help find a time that works.</p>
+          <p>Thank you - our engagement team will follow up to help find a time that works.</p>
           {!emailSent && (
             <p className="empty-message">(Note: the notification email couldn't be sent. The request itself was saved.)</p>
           )}
@@ -319,7 +312,7 @@ export default function ElderScheduling() {
           ))}
           <div style={{ display: 'flex', gap: '12px', marginTop: '1rem', flexWrap: 'wrap' }}>
             <button className="restart-btn" onClick={chooseDifferentElder}>
-              None of these work — choose a different elder
+              None of these work - choose a different elder
             </button>
             <button className="restart-btn" onClick={() => setStep(STEP.ENGAGEMENT_FORM)}>
               None of these work for me
@@ -340,7 +333,7 @@ export default function ElderScheduling() {
             <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
           </label>
           <label>
-            Your phone number (optional)
+            Your phone number
             <input type="tel" value={memberPhone} onChange={(e) => setMemberPhone(e.target.value)} />
           </label>
           <button type="submit">Confirm appointment</button>
@@ -350,11 +343,11 @@ export default function ElderScheduling() {
       {!loading && step === STEP.CONFIRMED && (
         <div className="confirmation">
           <p>
-            Your meeting is confirmed — {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
+            Your meeting is confirmed - {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
           </p>
           <p>A confirmation email is on its way to you.</p>
           {!emailSent && (
-            <p className="empty-message">(Note: the confirmation email couldn't be sent — this is expected while email isn't fully configured yet. Your appointment was saved.)</p>
+            <p className="empty-message">(Note: the confirmation email couldn't be sent - this is expected while email isn't fully configured yet. Your appointment was saved.)</p>
           )}
         </div>
       )}
@@ -364,12 +357,6 @@ export default function ElderScheduling() {
           Start over
         </button>
       )}
-
-      <div style={{ marginTop: '3rem', borderTop: '1px solid #e5e5e2', paddingTop: '1rem' }}>
-        <a href="/manage" className="empty-message" style={{ fontSize: '12px' }}>
-          Elder or admin? Manage availability →
-        </a>
-      </div>
     </div>
   );
 }

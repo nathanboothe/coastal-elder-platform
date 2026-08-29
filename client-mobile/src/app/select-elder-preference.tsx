@@ -74,15 +74,6 @@ export default function SelectElderPreferenceScreen() {
             ))}
           </View>
         )}
-
-        {!loading && (
-          <Pressable
-            style={styles.engagementLink}
-            onPress={() => router.push({ pathname: '/engagement', params: { campus } })}
-          >
-            <Text style={styles.engagementLinkText}>None of these work for me</Text>
-          </Pressable>
-        )}
       </View>
     </SafeAreaView>
   );

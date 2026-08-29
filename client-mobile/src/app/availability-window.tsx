@@ -96,7 +96,7 @@ export default function AvailabilityWindowScreen() {
               style={styles.fallbackButton}
               onPress={() => router.push({ pathname: '/select-elder-preference', params: { campus, classDate } })}
             >
-              <Text style={styles.fallbackButtonText}>None of these work — choose a different elder</Text>
+              <Text style={styles.fallbackButtonText}>None of these work - choose a different elder</Text>
             </Pressable>
             <Pressable
               style={styles.fallbackButton}

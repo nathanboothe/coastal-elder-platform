@@ -286,7 +286,7 @@ export default function ManageElderScreen() {
           <View key={row.id} style={styles.rowCard}>
             <View style={styles.rowInfo}>
               <Text style={styles.rowMain}>
-                {row['Start Date']} — {row['End Date']}
+                {row['Start Date']} - {row['End Date']}
               </Text>
               {!!row.Notes && <Text style={styles.rowMeta}>{row.Notes}</Text>}
             </View>

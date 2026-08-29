@@ -125,7 +125,7 @@ export default function ConfirmationScreen() {
             keyboardType="email-address"
           />
 
-          <Text style={styles.formLabel}>Your phone number (optional)</Text>
+          <Text style={styles.formLabel}>Your phone number</Text>
           <TextInput
             style={styles.input}
             value={memberPhone}

@@ -307,7 +307,7 @@ export default function AvailabilityManager() {
     return (
       <div className="wizard">
         <img src="/logo.png" alt="Coastal Church" className="logo-img" />
-        <h1>Elder Scheduling — Manage Availability</h1>
+        <h1>Elder Scheduling - Manage Availability</h1>
         <p className="empty-message">Sign in with your Coastal Microsoft account to continue.</p>
 
         {authError && <p className="error-message">{authError}</p>}
@@ -334,7 +334,7 @@ export default function AvailabilityManager() {
     return (
       <div className="wizard">
         <img src="/logo.png" alt="Coastal Church" className="logo-img" />
-        <h1>Elder Scheduling — Manage Availability</h1>
+        <h1>Elder Scheduling - Manage Availability</h1>
         <p className="empty-message">Signed in as {myName}.</p>
 
         <div className="option-grid">
@@ -372,7 +372,7 @@ export default function AvailabilityManager() {
             .map((c) => (
               <div className="manager-row" key={c.id}>
                 <div>
-                  <strong>{c.code}</strong> — {c.campus} · {c.classDate}
+                  <strong>{c.code}</strong> - {c.campus} · {c.classDate}
                 </div>
                 <button className="delete-btn" onClick={() => deactivateWacCode(c.id)}>
                   Deactivate
@@ -389,7 +389,7 @@ export default function AvailabilityManager() {
           <label>
             Campus
             <select value={newCampus} onChange={(e) => setNewCampus(e.target.value)}>
-              <option value="">— Select a campus —</option>
+              <option value="">- Select a campus -</option>
               {CAMPUSES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -458,7 +458,7 @@ export default function AvailabilityManager() {
                 )}
                 {syncSummary.duplicates && syncSummary.duplicates.length > 0 && (
                   <div>
-                    ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group —
+                    ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group -
                     reported to the OME email for cleanup in M365.
                   </div>
                 )}
@@ -471,7 +471,7 @@ export default function AvailabilityManager() {
             <p className="empty-message">
               One-time fix for elders added manually (not via M365 group sync) who are missing the
               M365 Object ID the calendar-sync feature needs. Matches each one to their M365 account
-              by exact email match — this does NOT touch the M365 group roster or create any new
+              by exact email match - this does NOT touch the M365 group roster or create any new
               elder records. Run this once before relying on calendar sync for existing elders.
             </p>
             <button type="button" onClick={() => runObjectIdBackfill(false)} disabled={backfillLoading}>
@@ -483,7 +483,7 @@ export default function AvailabilityManager() {
             {backfillResult && (
               <div className="manager-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
                 <div>
-                  {backfillResult.applied ? '✅ Applied' : '👀 Preview only — nothing written yet'}
+                  {backfillResult.applied ? '✅ Applied' : '👀 Preview only - nothing written yet'}
                 </div>
                 <div>
                   ✅ {backfillResult.applied ? 'Updated' : 'Would update'}:{' '}
@@ -493,7 +493,7 @@ export default function AvailabilityManager() {
                 </div>
                 {backfillResult.nearMisses.length > 0 && (
                   <div>
-                    ⚠️ Near-misses needing manual review (email doesn't match exactly — check for a
+                    ⚠️ Near-misses needing manual review (email doesn't match exactly - check for a
                     typo or trailing space):{' '}
                     {backfillResult.nearMisses
                       .map((n) => `${n.elderName} (Airtable: ${n.elderEmail} vs M365: ${n.graphEmail})`)
@@ -509,7 +509,7 @@ export default function AvailabilityManager() {
                   <button type="button" onClick={() => runObjectIdBackfill(true)} disabled={backfillLoading}>
                     {backfillLoading
                       ? 'Applying…'
-                      : `Apply — write Object ID for ${backfillResult.matched.length} elder(s)`}
+                      : `Apply - write Object ID for ${backfillResult.matched.length} elder(s)`}
                   </button>
                 )}
               </div>
@@ -523,7 +523,7 @@ export default function AvailabilityManager() {
               onChange={(e) => loadElderData(e.target.value)}
               className="elder-select"
             >
-              <option value="">— Select an elder —</option>
+              <option value="">- Select an elder -</option>
               {[...elders]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((e) => (
@@ -548,7 +548,7 @@ export default function AvailabilityManager() {
               <div className="manager-row" key={row.id}>
                 <div>
                   <strong>{row['Day of Week']}</strong>
-                  {' — '}
+                  {' - '}
                   {(row['Week of Month'] || []).join(', ')}
                   <br />
                   <span className="empty-message">{(row['Time Slots'] || []).join(', ')}</span>
