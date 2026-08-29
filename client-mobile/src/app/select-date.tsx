@@ -26,7 +26,11 @@ function formatDate(iso: string): string {
 }
 
 export default function SelectDateScreen() {
-  const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
+  const { campus, classDate, elder } = useLocalSearchParams<{
+    campus: string;
+    classDate: string;
+    elder: string;
+  }>();
   const router = useRouter();
   const [mode, setMode] = useState<'choose' | 'sunday' | 'cant-meet'>('choose');
 
@@ -56,7 +60,7 @@ export default function SelectDateScreen() {
     setLoading(true);
     setError(false);
     try {
-      const data = await fetchDates(campus, classDate, 'Sunday');
+      const data = await fetchDates(campus, classDate, 'Sunday', elder);
       setDates(data);
     } catch (err) {
       console.error(err);
@@ -93,7 +97,10 @@ export default function SelectDateScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: campus ?? 'Select Date' }} />
       <View style={styles.container}>
-        <Text style={styles.subtitle}>{campus}</Text>
+        <Text style={styles.subtitle}>
+          {campus}
+          {elder ? ` — with ${elder}` : ''}
+        </Text>
         <Text style={styles.title}>When can you meet?</Text>
 
         {mode === 'choose' && (
@@ -226,7 +233,7 @@ export default function SelectDateScreen() {
               if (!selectedDate || !campus) return;
               router.push({
                 pathname: '/select-time',
-                params: { campus, date: selectedDate },
+                params: { campus, date: selectedDate, elder },
               });
             }}
           >

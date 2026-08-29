@@ -4,7 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const COASTAL_BLUE = '#407DA8';
 
-export default function ConfirmCampusScreen() {
+function formatDate(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+}
+
+// Campus and class date are both derived entirely from the WAC code (see
+// code.tsx) — this screen states that back to the member and asks about a
+// preferred elder next. There is deliberately no "choose a different
+// campus" fallback here anymore: the code is the source of truth.
+export default function PreferenceScreen() {
   const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
   const router = useRouter();
 
@@ -13,25 +21,28 @@ export default function ConfirmCampusScreen() {
       <View style={styles.container}>
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            The code entered indicates you attended "We Are Coastal" at the {campus} campus. Tap
-            "Next" to continue or tap "Choose a different campus" to create an appointment at an
-            alternate campus.
+            The code you entered indicates that you attended We Are Coastal on {formatDate(classDate)} at{' '}
+            {campus}. Do you have a preferred elder you would like to meet with?
           </Text>
         </View>
 
         <View style={styles.buttons}>
           <Pressable
             style={styles.primaryButton}
-            onPress={() => router.push({ pathname: '/select-date', params: { campus, classDate } })}
+            onPress={() =>
+              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '1' } })
+            }
           >
-            <Text style={styles.primaryButtonText}>Next</Text>
+            <Text style={styles.primaryButtonText}>Yes</Text>
           </Pressable>
 
           <Pressable
             style={styles.secondaryButton}
-            onPress={() => router.push({ pathname: '/book', params: { classDate } })}
+            onPress={() =>
+              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '0' } })
+            }
           >
-            <Text style={styles.secondaryButtonText}>Choose a different campus</Text>
+            <Text style={styles.secondaryButtonText}>No preference</Text>
           </Pressable>
         </View>
       </View>

@@ -18,10 +18,12 @@ const express = require('express');
 const { listRecords, createRecord, deleteRecords, getRecord } = require('../lib/airtable');
 const availability = require('../lib/availability');
 const mail = require('../lib/graphMail');
+const calendar = require('../lib/graphCalendar');
 const manageAuth = require('../lib/manageAuth');
 const schedulerAuth = require('../lib/schedulerAuth');
 const wacCodes = require('../lib/wacCodes');
 const elderSync = require('../lib/elderSync');
+const elderObjectIdBackfill = require('../lib/elderObjectIdBackfill');
 const config = require('../config');
 
 const router = express.Router();
@@ -47,10 +49,10 @@ router.get('/campuses', schedulerAuth.requireSchedulerAuth, async (req, res, nex
 
 router.get('/dates', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
   try {
-    const { campusId, campusName, dayOfWeek, classDate } = req.query;
+    const { campusId, campusName, dayOfWeek, classDate, elderName } = req.query;
     if (!campusName) return res.status(400).json({ error: 'campusName is required' });
     if (!classDate) return res.status(400).json({ error: 'classDate is required' });
-    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate);
+    const dates = await availability.getAvailableDates(campusId, campusName, dayOfWeek || 'Sunday', classDate, elderName);
     res.json(dates);
   } catch (err) {
     next(err);
@@ -111,6 +113,7 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
       filterByFormula: `{Full Name} = '${elderName.replace(/'/g, "\\'")}'`,
     });
     const elderEmail = elderRecords[0]?.fields?.['Email'];
+    const elderObjectId = elderRecords[0]?.fields?.['M365 Object ID'];
 
     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
 
@@ -172,11 +175,60 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
       emailSent = false;
     }
 
-    res.status(201).json({ success: true, emailSent });
+    // M365 calendar sync — same non-blocking philosophy as email above.
+    // Most elder records still lack an M365 Object ID (Phase 4 backfill
+    // not yet run), so this is expected to no-op for most bookings today.
+    // That's fine: the booking and both emails already succeeded, this is
+    // a bonus on top, not a requirement.
+    let calendarEventCreated = true;
+    try {
+      await calendar.createCalendarEvent({
+        elderObjectId,
+        elderEmail,
+        memberName,
+        campusName,
+        date,
+        timeSlot,
+      });
+    } catch (calErr) {
+      console.error('Booking saved, but calendar event failed:', calErr.message);
+      calendarEventCreated = false;
+    }
+
+    res.status(201).json({ success: true, emailSent, calendarEventCreated });
   } catch (err) {
     if (err.message === 'SLOT_NO_LONGER_AVAILABLE') {
       return res.status(409).json({ error: 'That time was just booked by someone else. Please pick another.' });
     }
+    next(err);
+  }
+});
+
+// --- "None of these options work for me" -> engagement branch ---
+
+router.post('/contact-engagement', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+  try {
+    const { campusName, memberName, memberEmail, notes } = req.body;
+    if (!campusName || !memberName || !memberEmail) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    await availability.createEngagementRequest({ campusName, memberName, memberEmail, notes });
+
+    let emailSent = true;
+    try {
+      await mail.sendMail({
+        to: config.notifications.omeEmail,
+        subject: 'Member needs help finding an elder/time',
+        body: `A member didn't find an elder or time that worked for them.\n\nCampus: ${campusName}\nMember: ${memberName} (${memberEmail})\nNotes: ${notes || '(none)'}`,
+      });
+    } catch (emailErr) {
+      console.error('Engagement request saved, but email failed:', emailErr);
+      emailSent = false;
+    }
+
+    res.status(201).json({ success: true, emailSent });
+  } catch (err) {
     next(err);
   }
 });
@@ -324,6 +376,27 @@ router.post('/elder-sync/refresh', manageAuth.requireAdminAuth, async (req, res,
     }
     const summary = await elderSync.refreshFromM365();
     res.json({ success: true, ...summary });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// One-time backfill: fills in the M365 Object ID on manually-seeded elder
+// records by exact email match, so the calendar-sync feature knows whose
+// Outlook calendar to write to. See lib/elderObjectIdBackfill.js for why
+// this is deliberately separate from /elder-sync/refresh above — running
+// that refresh on a Manual elder still missing an Object ID creates a
+// duplicate record instead of filling in the gap.
+//
+// Defaults to a dry run (nothing written) so results can be reviewed
+// before committing — pass { "confirm": true } in the body for a real run.
+router.post('/elder-sync/backfill-object-ids', manageAuth.requireAdminAuth, async (req, res, next) => {
+  try {
+    if (req.auth.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can run the Object ID backfill.' });
+    }
+    const result = await elderObjectIdBackfill.run({ confirm: req.body?.confirm === true });
+    res.json(result);
   } catch (err) {
     next(err);
   }

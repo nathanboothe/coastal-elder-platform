@@ -2,11 +2,15 @@
 // Validates Microsoft Entra ID tokens for both elder/admin sign-in paths:
 // the web app's server-side Authorization Code redirect flow, and the
 // mobile app's public-client PKCE flow (which signs in inside the app and
-// POSTs the resulting ID token here for verification). Both paths use
-// this SAME web app registration's client ID as the token audience — see
-// the unified-platform-roadmap's note on why web and mobile intentionally
-// keep separate app registrations; this file is shared code, not a
-// shared registration.
+// POSTs the resulting ID token here for verification). The two paths
+// intentionally use DIFFERENT app registrations — web is a confidential
+// client (holds a secret), mobile is a public client (can't safely hold
+// one) — see the unified-platform-roadmap's note on why that split is
+// correct OAuth practice, not something to consolidate away. What's
+// shared is this backend and this verification logic, not the
+// registration; a token's `aud` claim will be one or the other
+// depending on which app the person actually signed in through, so both
+// are accepted here.
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
@@ -36,7 +40,7 @@ function verifyEntraToken(idToken) {
       idToken,
       getSigningKey,
       {
-        audience: config.entra.clientId,
+        audience: [config.entra.clientId, config.entra.mobileClientId],
         issuer: `https://login.microsoftonline.com/${config.entra.tenantId}/v2.0`,
         algorithms: ['RS256'],
       },

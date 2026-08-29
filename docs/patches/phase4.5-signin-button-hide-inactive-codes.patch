@@ -1,0 +1,93 @@
+diff --git a/client-mobile/src/app/manage-wac-codes.tsx b/client-mobile/src/app/manage-wac-codes.tsx
+index c1f1d78..818033f 100644
+--- a/client-mobile/src/app/manage-wac-codes.tsx
++++ b/client-mobile/src/app/manage-wac-codes.tsx
+@@ -174,21 +174,21 @@ export default function AdminHomeScreen() {
+ 
+         {!loading &&
+           !error &&
+-          codes.map((c) => (
+-            <View key={c.id} style={[styles.codeRow, !c.active && styles.codeRowInactive]}>
+-              <View style={styles.codeInfo}>
+-                <Text style={styles.codeText}>{c.code}</Text>
+-                <Text style={styles.codeMeta}>
+-                  {c.campus} · {c.classDate} · {c.active ? 'Active' : 'Inactive'}
+-                </Text>
+-              </View>
+-              {c.active && (
++          codes
++            .filter((c) => c.active)
++            .map((c) => (
++              <View key={c.id} style={styles.codeRow}>
++                <View style={styles.codeInfo}>
++                  <Text style={styles.codeText}>{c.code}</Text>
++                  <Text style={styles.codeMeta}>
++                    {c.campus} · {c.classDate}
++                  </Text>
++                </View>
+                 <Pressable style={styles.deactivateButton} onPress={() => handleDeactivate(c.id)}>
+                   <Text style={styles.deactivateButtonText}>Deactivate</Text>
+                 </Pressable>
+-              )}
+-            </View>
+-          ))}
++              </View>
++            ))}
+       </ScrollView>
+     </SafeAreaView>
+   );
+diff --git a/client-web/src/modules/AvailabilityManager.jsx b/client-web/src/modules/AvailabilityManager.jsx
+index ae849da..7e03a26 100644
+--- a/client-web/src/modules/AvailabilityManager.jsx
++++ b/client-web/src/modules/AvailabilityManager.jsx
+@@ -295,13 +295,15 @@ export default function AvailabilityManager() {
+ 
+         {authError && <p className="error-message">{authError}</p>}
+ 
+-        <a
+-          href="/api/auth/login"
+-          className="option-btn"
+-          style={{ display: 'inline-block', textDecoration: 'none', textAlign: 'center' }}
+-        >
+-          Sign in with Microsoft
+-        </a>
++        <div className="option-grid">
++          <a
++            href="/api/auth/login"
++            className="option-btn"
++            style={{ display: 'flex', textDecoration: 'none' }}
++          >
++            Sign in with Microsoft
++          </a>
++        </div>
+ 
+         <a href="/" className="restart-btn" style={{ display: 'inline-block', marginTop: '2rem' }}>
+           ← Back to scheduling
+@@ -348,18 +350,18 @@ export default function AvailabilityManager() {
+         {wacError && <p className="error-message">{wacError}</p>}
+ 
+         {!wacLoading &&
+-          wacCodes.map((c) => (
+-            <div className="manager-row" key={c.id}>
+-              <div style={{ opacity: c.active ? 1 : 0.5 }}>
+-                <strong>{c.code}</strong> — {c.campus} · {c.classDate} · {c.active ? 'Active' : 'Inactive'}
+-              </div>
+-              {c.active && (
++          wacCodes
++            .filter((c) => c.active)
++            .map((c) => (
++              <div className="manager-row" key={c.id}>
++                <div>
++                  <strong>{c.code}</strong> — {c.campus} · {c.classDate}
++                </div>
+                 <button className="delete-btn" onClick={() => deactivateWacCode(c.id)}>
+                   Deactivate
+                 </button>
+-              )}
+-            </div>
+-          ))}
++              </div>
++            ))}
+ 
+         <form className="member-form" onSubmit={createWacCode} style={{ marginTop: '1rem' }}>
+           <h3>Create a code</h3>

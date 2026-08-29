@@ -1,0 +1,161 @@
+diff --git a/server/lib/elderObjectIdBackfill.js b/server/lib/elderObjectIdBackfill.js
+new file mode 100644
+index 0000000..d6a3b3b
+--- /dev/null
++++ b/server/lib/elderObjectIdBackfill.js
+@@ -0,0 +1,114 @@
++// lib/elderObjectIdBackfill.js
++// One-time backfill for the M365 Object ID gap on elder records seeded
++// before this app tracked Object IDs (Source = 'Manual' — the original
++// 30-person roster, plus the Demo elder). lib/elderSync.js's normal
++// "Refresh from M365" sync can't see these records at all: it only
++// matches EXISTING records by M365 Object ID, and it only ever looks at
++// records where Source = 'M365 Group Sync' (see that file's own
++// comments). Until every Manual elder has an Object ID, running the
++// normal refresh will create a brand-new, duplicate Elder record for
++// each one still in one of the three elder groups, rather than updating
++// their real record.
++//
++// This does the one thing the normal sync structurally can't: match a
++// Manual elder to their M365 user by email and write the Object ID onto
++// the EXISTING record, leaving Source = 'Manual' untouched so the normal
++// sync continues to leave that record alone afterward, exactly as it
++// does for the Demo elder today.
++//
++// Matching is an EXACT string match against Graph's `mail` (falling back
++// to `userPrincipalName`, same as lib/graphDirectory.js does for the
++// group sync) — deliberately not case- or whitespace-normalized. A
++// near-miss (would have matched case/whitespace-insensitively) is
++// reported separately so a human can decide whether to fix the Airtable
++// record's email and re-run, rather than the backfill silently guessing.
++//
++// Defaults to a DRY RUN: nothing is written to Airtable unless the
++// caller explicitly passes { confirm: true }.
++
++const { listRecords, updateRecords } = require('./airtable');
++const { getElderGroupMembers } = require('./graphDirectory');
++const config = require('../config');
++
++/** Manual elder records that don't yet have an M365 Object ID on file. */
++async function getManualEldersMissingObjectId() {
++  return listRecords(config.airtable.tables.elders, {
++    filterByFormula: `AND({Source} = 'Manual', {M365 Object ID} = '')`,
++  });
++}
++
++/**
++ * Runs the backfill. Always computes the full match report; only writes
++ * to Airtable when options.confirm is true.
++ *
++ * @returns {Promise<{
++ *   dryRun: boolean,
++ *   totalManualEldersMissingObjectId: number,
++ *   matched: Array<{elderId: string, name: string, email: string, objectId: string}>,
++ *   nearMisses: Array<{elderId: string, name: string, airtableEmail: string, m365Email: string, objectId: string}>,
++ *   noMatch: Array<{elderId: string, name: string, email: string}>,
++ *   written: boolean
++ * }>}
++ */
++async function backfillObjectIds({ confirm = false } = {}) {
++  const [manualElders, { members: groupMembers }] = await Promise.all([
++    getManualEldersMissingObjectId(),
++    getElderGroupMembers(),
++  ]);
++
++  const matched = [];
++  const nearMisses = [];
++  const noMatch = [];
++
++  for (const elder of manualElders) {
++    const elderEmail = (elder.fields['Email'] || '').trim();
++    const name = elder.fields['Full Name'];
++
++    const exact = elderEmail ? groupMembers.find((m) => m.email === elderEmail) : null;
++
++    if (exact) {
++      matched.push({ elderId: elder.id, name, email: elderEmail, objectId: exact.objectId });
++      continue;
++    }
++
++    // Not an exact match. Check case/whitespace-insensitively PURELY to
++    // surface it in the report — never auto-applied, per the deliberate
++    // exact-match-only decision above.
++    const normalized = elderEmail.toLowerCase();
++    const caseInsensitive = elderEmail
++      ? groupMembers.find((m) => m.email.trim().toLowerCase() === normalized)
++      : null;
++
++    if (caseInsensitive) {
++      nearMisses.push({
++        elderId: elder.id,
++        name,
++        airtableEmail: elderEmail,
++        m365Email: caseInsensitive.email,
++        objectId: caseInsensitive.objectId,
++      });
++    } else {
++      noMatch.push({ elderId: elder.id, name, email: elderEmail || '(no email on file)' });
++    }
++  }
++
++  let written = false;
++  if (confirm && matched.length > 0) {
++    await updateRecords(
++      config.airtable.tables.elders,
++      matched.map((m) => ({ id: m.elderId, fields: { 'M365 Object ID': m.objectId } }))
++    );
++    written = true;
++  }
++
++  return {
++    dryRun: !confirm,
++    totalManualEldersMissingObjectId: manualElders.length,
++    matched,
++    nearMisses,
++    noMatch,
++    written,
++  };
++}
++
++module.exports = { backfillObjectIds };
+diff --git a/server/routes/elderScheduling.js b/server/routes/elderScheduling.js
+index fecbba1..8da3af0 100644
+--- a/server/routes/elderScheduling.js
++++ b/server/routes/elderScheduling.js
+@@ -22,6 +22,7 @@ const manageAuth = require('../lib/manageAuth');
+ const schedulerAuth = require('../lib/schedulerAuth');
+ const wacCodes = require('../lib/wacCodes');
+ const elderSync = require('../lib/elderSync');
++const elderObjectIdBackfill = require('../lib/elderObjectIdBackfill');
+ const config = require('../config');
+ 
+ const router = express.Router();
+@@ -301,6 +302,28 @@ router.post('/elder-sync/refresh', manageAuth.requireAdminAuth, async (req, res,
+   }
+ });
+ 
++// --- One-time M365 Object ID backfill for elders seeded before this app
++// tracked Object IDs (Source = 'Manual'). Run this — and confirm it
++// reports zero remaining unmatched elders you expect to match — BEFORE
++// ever relying on /elder-sync/refresh above for those same elders, or
++// refresh will create duplicate records for them. See
++// lib/elderObjectIdBackfill.js for why. Defaults to a dry run (report
++// only, nothing written); pass { "confirm": true } in the request body
++// to actually write the matched Object IDs to Airtable. ---
++
++router.post('/elder-sync/backfill-object-ids', manageAuth.requireAdminAuth, async (req, res, next) => {
++  try {
++    if (req.auth.role !== 'admin') {
++      return res.status(403).json({ error: 'Only admins can run the M365 Object ID backfill.' });
++    }
++    const confirm = req.body && req.body.confirm === true;
++    const report = await elderObjectIdBackfill.backfillObjectIds({ confirm });
++    res.json({ success: true, ...report });
++  } catch (err) {
++    next(err);
++  }
++});
++
+ // --- Elder self-service time off (same hybrid scoping as availability) ---
+ 
+ router.get('/elder-timeoff', manageAuth.requireAdminAuth, async (req, res, next) => {

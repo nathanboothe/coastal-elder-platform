@@ -1,6 +1,18 @@
-const API_BASE = 'https://elder-android-backend.onrender.com/api';
+// Points at the unified elder-api (server/) — the same backend the web
+// app uses, as of the Phase 3 backend merge. Previously pointed at the
+// old standalone elder-android-backend service; that split existed only
+// because the web app's original /manage was PIN-gated with no per-user
+// identity, which is no longer true (see unified-platform-roadmap Section
+// 3). The custom domain is used rather than a raw .onrender.com URL
+// since Render's internal service naming has drifted from what's
+// actually live — the domain is the one stable reference point.
+const API_BASE = 'https://elder.techfoundry360.com/api';
 
 // Not secrets — safe to have as real values here (embedded in the app itself).
+// This is the "Coastal Elder Scheduler — Mobile" app registration's own
+// client ID (a public client, PKCE, no secret) — deliberately separate
+// from the web app's registration. The backend now accepts id_tokens
+// from either registration (see server/lib/entraAuth.js).
 export const ENTRA_CONFIG = {
   tenantId: '1607456c-506f-4aea-bd09-15a63ec8ad52',
   clientId: '9ae266aa-5a20-409d-8fae-153a6cedf606',
@@ -14,6 +26,7 @@ export type Campus = {
 export type Elder = {
   id: string;
   name: string;
+  availability?: string[];
 };
 
 // --- Session state ---
@@ -309,9 +322,11 @@ export async function submitSundayOptOut(input: {
 export async function fetchDates(
   campusName: string,
   classDate: string,
-  dayOfWeek: string = 'Sunday'
+  dayOfWeek: string = 'Sunday',
+  elderName?: string
 ): Promise<string[]> {
   const params = new URLSearchParams({ campusName, classDate, dayOfWeek });
+  if (elderName) params.set('elderName', elderName);
   const response = await fetch(`${API_BASE}/dates?${params.toString()}`, {
     headers: authHeaders(),
   });
@@ -321,13 +336,47 @@ export async function fetchDates(
   return response.json();
 }
 
-export async function fetchTimes(campusName: string, date: string): Promise<string[]> {
+export async function fetchTimes(campusName: string, date: string, elderName?: string): Promise<string[]> {
   const params = new URLSearchParams({ campusName, date });
+  if (elderName) params.set('elderName', elderName);
   const response = await fetch(`${API_BASE}/times?${params.toString()}`, {
     headers: authHeaders(),
   });
   if (!response.ok) {
     throw new Error(`Failed to load times (${response.status})`);
+  }
+  return response.json();
+}
+
+/** Elders at a campus, with a plain-language summary of each one's
+ *  recurring availability pattern — used for the preferred-elder step,
+ *  before any date/time has been picked. */
+export async function fetchCampusElders(campusName: string): Promise<Elder[]> {
+  const params = new URLSearchParams({ campusName });
+  const response = await fetch(`${API_BASE}/campus-elders?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load elders (${response.status})`);
+  }
+  return response.json();
+}
+
+/** "None of these elders/times work for me" escape hatch. */
+export async function submitContactEngagement(input: {
+  campusName: string;
+  memberName: string;
+  memberEmail: string;
+  notes?: string;
+}): Promise<{ emailSent: boolean }> {
+  const response = await fetch(`${API_BASE}/contact-engagement`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error || `Failed to submit your request (${response.status})`);
   }
   return response.json();
 }
@@ -340,7 +389,7 @@ export async function createAppointment(input: {
   memberName: string;
   memberEmail: string;
   memberPhone?: string;
-}): Promise<{ emailSent: boolean }> {
+}): Promise<{ emailSent: boolean; calendarEventCreated?: boolean }> {
   const response = await fetch(`${API_BASE}/appointments`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },

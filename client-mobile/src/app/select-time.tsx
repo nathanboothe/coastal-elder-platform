@@ -20,7 +20,7 @@ function toApiDate(iso: string): string {
 }
 
 export default function SelectTimeScreen() {
-  const { campus, date } = useLocalSearchParams<{ campus: string; date: string }>();
+  const { campus, date, elder } = useLocalSearchParams<{ campus: string; date: string; elder: string }>();
   const router = useRouter();
   const [times, setTimes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +36,7 @@ export default function SelectTimeScreen() {
     setLoading(true);
     setError(false);
     try {
-      const data = await fetchTimes(campus, toApiDate(date));
+      const data = await fetchTimes(campus, toApiDate(date), elder);
       setTimes(data);
     } catch (err) {
       console.error(err);
@@ -111,10 +111,10 @@ export default function SelectTimeScreen() {
           disabled={!selectedTime}
           style={[styles.continueButton, !selectedTime && styles.continueButtonDisabled]}
           onPress={() => {
-            if (!selectedTime || !campus || !date) return;
+            if (!selectedTime || !campus || !date || !elder) return;
             router.push({
-              pathname: '/select-elder',
-              params: { campus, date, time: selectedTime },
+              pathname: '/confirmation',
+              params: { campus, date, time: selectedTime, elder },
             });
           }}
         >

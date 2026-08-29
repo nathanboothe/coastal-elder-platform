@@ -1,0 +1,1104 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..ed45f73
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,6 @@
++node_modules/
++.env
++.env.*
++!.env.example
++*.log
++.DS_Store
+diff --git a/server/config.js b/server/config.js
+index c332871..79db56c 100644
+--- a/server/config.js
++++ b/server/config.js
+@@ -62,6 +62,18 @@ module.exports = {
+     sessionSecret: required('SCHEDULER_SESSION_SECRET'),
+   },
+ 
++  // --- Mobile bearer-token signing. The web client uses signed cookies
++  // (manage.sessionSecret / scheduler.sessionSecret above); the mobile
++  // app can't rely on a browser cookie jar, so it gets a JWT instead.
++  // One secret, `scope` field on the token payload ('scheduler' vs
++  // 'admin') tells requireSchedulerAuth/requireAdminAuth which kind it
++  // is — same approach elder-android-backend used on its own before the
++  // backend merge. ---
++  jwt: {
++    secret: required('JWT_SECRET'),
++    expiresIn: '12h',
++  },
++
+   // --- Entra ID (elder/admin sign-in) ---
+   // A separate app registration from BOTH the Graph mail registration
+   // above AND elder-android-app's mobile public client — confidential
+diff --git a/server/lib/entraAuth.js b/server/lib/entraAuth.js
+index 8b1c0a3..a29bbc6 100644
+--- a/server/lib/entraAuth.js
++++ b/server/lib/entraAuth.js
+@@ -1,8 +1,12 @@
+ // server/lib/entraAuth.js
+-// Validates Microsoft Entra ID tokens for the web admin sign-in flow.
+-// Uses this app's OWN separate web app registration (Authorization Code
+-// flow, confidential client) — independent of both the mobile app's
+-// public client and this server's existing Mail.Send registration.
++// Validates Microsoft Entra ID tokens for both elder/admin sign-in paths:
++// the web app's server-side Authorization Code redirect flow, and the
++// mobile app's public-client PKCE flow (which signs in inside the app and
++// POSTs the resulting ID token here for verification). Both paths use
++// this SAME web app registration's client ID as the token audience — see
++// the unified-platform-roadmap's note on why web and mobile intentionally
++// keep separate app registrations; this file is shared code, not a
++// shared registration.
+ 
+ const jwt = require('jsonwebtoken');
+ const jwksClient = require('jwks-rsa');
+@@ -44,4 +48,21 @@ function verifyEntraToken(idToken) {
+   });
+ }
+ 
+-module.exports = { verifyEntraToken };
++/**
++ * True if the token's groups claim includes either the Elders or
++ * Elder App Admins group. Both grant the same admin-app access right now
++ * — there's no tiered permission level between the two.
++ *
++ * NOTE: Entra only includes a full groups claim if the user belongs to
++ * 200 or fewer groups total; above that it's replaced with an overage
++ * indicator instead, and payload.groups will be undefined. Not expected
++ * to matter for elders/admins here, but callers should check for that
++ * rather than silently treating a missing claim as "not authorized" with
++ * no explanation.
++ */
++function isAuthorizedGroupMember(payload) {
++  const groups = payload.groups || [];
++  return groups.includes(config.entra.elderGroupId) || groups.includes(config.entra.adminGroupId);
++}
++
++module.exports = { verifyEntraToken, isAuthorizedGroupMember };
+diff --git a/server/lib/entraLogin.js b/server/lib/entraLogin.js
+new file mode 100644
+index 0000000..33b5a37
+--- /dev/null
++++ b/server/lib/entraLogin.js
+@@ -0,0 +1,88 @@
++// server/lib/entraLogin.js
++// Shared "who is this person and are they allowed in" logic for elder/admin
++// sign-in, used by BOTH:
++//   - lib/manageAuth.js — the web app's server-side redirect flow, which
++//     gets an id_token from the Authorization Code exchange
++//   - the mobile app's /api/admin-auth route (in routes/elderScheduling.js)
++//     — the Expo app signs in itself (PKCE, public client) and POSTs the
++//     resulting id_token here for verification
++//
++// Before this file existed, this exact logic (verify token, check group
++// membership, look up the matching Elders record by email) was
++// duplicated between manageAuth.js and the old elder-android-backend's
++// schedulerAuth.js. Now it lives once. What still legitimately differs
++// between web and mobile is only the credential each path ISSUES
++// afterward — a signed cookie for web, a JWT for mobile — because a
++// browser and a native app hold onto session state differently. That
++// issuing step stays in each caller, not here.
++
++const config = require('../config');
++const entraAuth = require('./entraAuth');
++const { listRecords } = require('./airtable');
++
++/**
++ * Verifies idToken, confirms the signed-in user is in the Elders or Elder
++ * App Admins group, and looks up their matching Elders record by email.
++ *
++ * Returns { role, name, email, elderId, elderName } on success.
++ * Throws an Error with `.status` and `.userMessage` set on any failure —
++ * callers can use those directly for an HTTP response or a redirect
++ * query param, whichever fits their flow.
++ */
++async function resolveEntraLogin(idToken) {
++  let payload;
++  try {
++    payload = await entraAuth.verifyEntraToken(idToken);
++  } catch (err) {
++    console.error('Entra token verification failed:', err.message || err);
++    throw Object.assign(new Error('Invalid or expired sign-in token'), {
++      status: 401,
++      userMessage: 'Invalid or expired sign-in token',
++    });
++  }
++
++  if (!payload.groups) {
++    throw Object.assign(
++      new Error('Could not determine group membership from the sign-in token. Contact an administrator.'),
++      { status: 403, userMessage: 'Could not determine group membership. Contact an administrator.' }
++    );
++  }
++
++  const isAdminGroup = payload.groups.includes(config.entra.adminGroupId);
++  const isElderGroup = payload.groups.includes(config.entra.elderGroupId);
++  if (!isAdminGroup && !isElderGroup) {
++    throw Object.assign(new Error('Your account is not authorized for admin access.'), {
++      status: 403,
++      userMessage: 'Your account is not authorized for admin access.',
++    });
++  }
++
++  // Hybrid permission model: admins (elder-app-admins group) can manage
++  // any elder's availability/time off; plain elders (elders group) are
++  // scoped to their own record, matched by signed-in email against the
++  // Elders table.
++  const role = isAdminGroup ? 'admin' : 'elder';
++  const email = payload.email || payload.preferred_username || '';
++
++  let elderId = null;
++  let elderName = null;
++  if (email) {
++    try {
++      const matches = await listRecords(config.airtable.tables.elders, {
++        filterByFormula: `LOWER({Email}) = '${email.toLowerCase().replace(/'/g, "\\'")}'`,
++      });
++      if (matches[0]) {
++        elderId = matches[0].id;
++        elderName = matches[0].fields['Full Name'];
++      }
++    } catch (err) {
++      console.error('Elder lookup by email failed during login:', err.message || err);
++      // Non-fatal — sign-in still succeeds, just without a matched elder
++      // record (relevant self-service screens will show a clear message).
++    }
++  }
++
++  return { role, name: payload.name, email, elderId, elderName };
++}
++
++module.exports = { resolveEntraLogin };
+diff --git a/server/lib/manageAuth.js b/server/lib/manageAuth.js
+index cab81de..cf20729 100644
+--- a/server/lib/manageAuth.js
++++ b/server/lib/manageAuth.js
+@@ -1,21 +1,30 @@
+ // server/lib/manageAuth.js
+-// Elder/Admin sign-in via Microsoft Entra ID — Authorization Code flow,
+-// confidential client (this server holds a client secret, unlike the
+-// mobile app's public client, so PKCE isn't required here; CSRF is still
+-// mitigated via the `state` parameter below). Replaces the old single
+-// shared PIN with real per-person sign-in, and determines a hybrid role:
+-//   - 'admin' (elder-app-admins group): can manage any elder's
+-//     availability/time off, and manage WAC codes.
+-//   - 'elder' (elders group): scoped to their own record, matched by
+-//     signed-in email against the Elders table.
++// Elder/Admin sign-in and session handling — the merged home for BOTH:
++//   - the web app's server-side Authorization Code redirect flow
++//     (startLogin, handleCallback) — a browser gets redirected to
++//     Microsoft and back, and this server holds the client secret
++//   - the mobile app's token-verification flow (checkEntraLogin) — the
++//     Expo app signs in itself (PKCE, public client, no secret) and
++//     POSTs the resulting id_token here to be verified
+ //
+-// Same signed-cookie session mechanism as before (crypto HMAC) — only the
+-// login mechanism and the payload it stores have changed.
++// Both paths call the SAME lib/entraLogin.js to decide "who is this and
++// are they allowed in" — that used to be duplicated between this file and
++// elder-android-backend's schedulerAuth.js. What still legitimately
++// differs is the credential each path hands back afterward: a browser
++// gets an httpOnly signed cookie (same crypto-HMAC approach as before);
++// a native app gets a JWT bearer token in the JSON response, because
++// that's how each client actually holds onto a session.
++//
++// requireAdminAuth (below) is the single gate both clients pass through:
++// it checks for a Bearer token first (mobile), then falls back to the
++// session cookie (web). Every admin/elder route in
++// routes/elderScheduling.js uses this one function now, regardless of
++// which client is calling.
+ 
+ const crypto = require('crypto');
++const jwt = require('jsonwebtoken');
+ const config = require('../config');
+-const entraAuth = require('./entraAuth');
+-const { listRecords } = require('./airtable');
++const { resolveEntraLogin } = require('./entraLogin');
+ 
+ const SESSION_COOKIE = 'manage_session';
+ const STATE_COOKIE = 'manage_oauth_state';
+@@ -56,9 +65,9 @@ function parseCookies(req) {
+   );
+ }
+ 
+-/** Step 1: redirect the browser to Microsoft's sign-in page. Called by
+- *  navigating to this URL directly (a real link, not a fetch call) —
+- *  the OAuth redirect needs a top-level browser navigation. */
++/** Step 1 (web only): redirect the browser to Microsoft's sign-in page.
++ *  Called by navigating to this URL directly (a real link, not a fetch
++ *  call) — the OAuth redirect needs a top-level browser navigation. */
+ function startLogin(req, res) {
+   const state = crypto.randomBytes(16).toString('hex');
+ 
+@@ -83,7 +92,9 @@ function startLogin(req, res) {
+   );
+ }
+ 
+-/** Step 2: Microsoft redirects back here with a code (or an error). */
++/** Step 2 (web only): Microsoft redirects back here with a code (or an
++ *  error). Exchanges the code, then hands the id_token to the shared
++ *  resolveEntraLogin() for the actual role/elder resolution. */
+ async function handleCallback(req, res) {
+   const { code, state, error, error_description: errorDescription } = req.query;
+   const cookies = parseCookies(req);
+@@ -120,45 +131,20 @@ async function handleCallback(req, res) {
+     }
+ 
+     const tokenData = await tokenRes.json();
+-    const payload = await entraAuth.verifyEntraToken(tokenData.id_token);
+-
+-    if (!payload.groups) {
+-      return res.redirect(
+-        '/manage?error=' +
+-          encodeURIComponent('Could not determine group membership. Contact an administrator.')
+-      );
+-    }
+ 
+-    const isAdminGroup = payload.groups.includes(config.entra.adminGroupId);
+-    const isElderGroup = payload.groups.includes(config.entra.elderGroupId);
+-    if (!isAdminGroup && !isElderGroup) {
+-      return res.redirect(
+-        '/manage?error=' + encodeURIComponent('Your account is not authorized for admin access.')
+-      );
+-    }
+-
+-    const role = isAdminGroup ? 'admin' : 'elder';
+-    const email = payload.email || payload.preferred_username || '';
+-
+-    let elderName = null;
+-    if (email) {
+-      try {
+-        const matches = await listRecords(config.airtable.tables.elders, {
+-          filterByFormula: `LOWER({Email}) = '${email.toLowerCase().replace(/'/g, "\\'")}'`,
+-        });
+-        if (matches[0]) elderName = matches[0].fields['Full Name'];
+-      } catch (err) {
+-        console.error('Elder lookup by email failed during login:', err.message || err);
+-        // Non-fatal — sign-in still succeeds, just without a matched
+-        // elder record (self-service screens will show a clear message).
+-      }
++    let identity;
++    try {
++      identity = await resolveEntraLogin(tokenData.id_token);
++    } catch (err) {
++      return res.redirect('/manage?error=' + encodeURIComponent(err.userMessage || 'Sign-in failed.'));
+     }
+ 
+     const session = sign({
+-      role,
+-      name: payload.name,
+-      email,
+-      elderName,
++      role: identity.role,
++      name: identity.name,
++      email: identity.email,
++      elderId: identity.elderId,
++      elderName: identity.elderName,
+       expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000,
+     });
+ 
+@@ -177,8 +163,67 @@ async function handleCallback(req, res) {
+   }
+ }
+ 
+-/** Express middleware — blocks the request unless a valid session cookie is present. */
+-function requireManageAuth(req, res, next) {
++/** Mobile only: the Expo app signs in itself (PKCE) and POSTs the
++ *  resulting id_token here. Same identity resolution as the web flow
++ *  above, but issues a JWT bearer token in the JSON response instead of
++ *  a cookie, since that's how the mobile app actually holds a session. */
++async function checkEntraLogin(req, res) {
++  const { idToken } = req.body || {};
++  if (!idToken) {
++    return res.status(400).json({ error: 'idToken is required' });
++  }
++
++  let identity;
++  try {
++    identity = await resolveEntraLogin(idToken);
++  } catch (err) {
++    return res.status(err.status || 401).json({ error: err.userMessage || 'Sign-in failed.' });
++  }
++
++  const token = jwt.sign(
++    {
++      scope: 'admin',
++      role: identity.role,
++      name: identity.name,
++      email: identity.email,
++      elderId: identity.elderId,
++      elderName: identity.elderName,
++    },
++    config.jwt.secret,
++    { expiresIn: config.jwt.expiresIn }
++  );
++
++  res.json({
++    token,
++    expiresIn: config.jwt.expiresIn,
++    name: identity.name,
++    role: identity.role,
++    elderName: identity.elderName,
++  });
++}
++
++/** The one gate every admin/elder route uses, regardless of which client
++ *  is calling: a Bearer token (mobile) is checked first, then the
++ *  session cookie (web). Populates req.auth identically either way —
++ *  { role, name, email, elderId, elderName, ... } — so route handlers
++ *  never need to know which client sent the request. */
++function requireAdminAuth(req, res, next) {
++  const header = req.headers.authorization || '';
++  const [scheme, token] = header.split(' ');
++
++  if (scheme === 'Bearer' && token) {
++    try {
++      const payload = jwt.verify(token, config.jwt.secret);
++      if (payload.scope !== 'admin') {
++        return res.status(403).json({ error: 'Token does not have admin access' });
++      }
++      req.auth = payload;
++      return next();
++    } catch {
++      return res.status(401).json({ error: 'Invalid or expired token' });
++    }
++  }
++
+   const cookies = parseCookies(req);
+   const session = verify(cookies[SESSION_COOKIE]);
+   if (!session) {
+@@ -188,4 +233,4 @@ function requireManageAuth(req, res, next) {
+   next();
+ }
+ 
+-module.exports = { startLogin, handleCallback, requireManageAuth };
++module.exports = { startLogin, handleCallback, checkEntraLogin, requireAdminAuth };
+diff --git a/server/lib/schedulerAuth.js b/server/lib/schedulerAuth.js
+index ed2b41e..d0bfa0c 100644
+--- a/server/lib/schedulerAuth.js
++++ b/server/lib/schedulerAuth.js
+@@ -1,12 +1,18 @@
+ // server/lib/schedulerAuth.js
+ // Member-facing wizard login — validates a per-class WAC code (see
+-// lib/wacCodes.js) instead of a single shared PIN, and stores which
+-// campus/class date the code belongs to in the session cookie so the
+-// booking flow doesn't have to resend it. Same signed-cookie approach as
+-// before (crypto HMAC, no new dependency) — only WHAT gets checked and
+-// stored has changed.
++// lib/wacCodes.js) instead of the old single shared PIN.
++//
++// checkCode issues BOTH a signed httpOnly cookie (for the web client,
++// same crypto-HMAC approach as before) AND a JWT bearer token in the
++// JSON response (for the mobile client, which can't rely on a browser
++// cookie jar the way a web page can). Each client just uses whichever
++// one applies to it — the web frontend never reads the `token` field,
++// and the mobile app never persists the cookie. Same idea as
++// lib/manageAuth.js's requireAdminAuth: one shared validation path,
++// two credential formats handed out depending on who's asking.
+ 
+ const crypto = require('crypto');
++const jwt = require('jsonwebtoken');
+ const config = require('../config');
+ const wacCodes = require('./wacCodes');
+ 
+@@ -48,38 +54,76 @@ function parseCookies(req) {
+   );
+ }
+ 
+-/** Checks a WAC code and, if valid, sets a signed session cookie carrying
+- *  the matched campus + class date. Returns those in the JSON response
+- *  too, so the frontend can show the "you attended at {campus}" step. */
+-async function checkCode(req, res) {
++/** Checks a WAC code and, if valid, sets a signed session cookie AND
++ *  returns a JWT bearer token — both carrying the matched campus + class
++ *  date. Returns those in the JSON response too, so the frontend (web or
++ *  mobile) can show the "you attended at {campus}" step either way. */
++async function checkCode(req, res, next) {
+   const { code } = req.body || {};
+   if (!code) {
+     return res.status(400).json({ error: 'code is required' });
+   }
+ 
+-  const match = await wacCodes.validateCode(code);
++  // Bug found while testing the merged server, present before this
++  // merge too: validateCode's Airtable call was previously unguarded
++  // here — if Airtable errored (rate limit, network blip, bad table
++  // name), the rejection was never caught and crashed the whole Node
++  // process, taking down both the web and mobile clients at once. Now
++  // it's routed to Express's normal error handler like every other
++  // route in this file.
++  let match;
++  try {
++    match = await wacCodes.validateCode(code);
++  } catch (err) {
++    return next(err);
++  }
++
+   if (!match) {
+     return res.status(401).json({ error: "That code wasn't recognized. Check it and try again." });
+   }
+ 
+-  const token = sign({
+-    campus: match.campusName,
+-    classDate: match.classDate,
+-    expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000,
+-  });
++  const sessionPayload = { campus: match.campusName, classDate: match.classDate };
+ 
+-  res.cookie(COOKIE_NAME, token, {
++  const cookieToken = sign({ ...sessionPayload, expiresAt: Date.now() + SESSION_HOURS * 60 * 60 * 1000 });
++  res.cookie(COOKIE_NAME, cookieToken, {
+     httpOnly: true,
+     sameSite: 'lax',
+     secure: process.env.NODE_ENV === 'production',
+     maxAge: SESSION_HOURS * 60 * 60 * 1000,
+   });
+ 
+-  res.json({ success: true, campus: match.campusName, classDate: match.classDate });
++  const bearerToken = jwt.sign({ scope: 'scheduler', ...sessionPayload }, config.jwt.secret, {
++    expiresIn: config.jwt.expiresIn,
++  });
++
++  res.json({
++    success: true,
++    campus: match.campusName,
++    classDate: match.classDate,
++    token: bearerToken,
++    expiresIn: config.jwt.expiresIn,
++  });
+ }
+ 
+-/** Express middleware — blocks the request unless a valid session cookie is present. */
++/** Express middleware — accepts either a Bearer token (mobile) or the
++ *  session cookie (web). Populates req.auth identically either way. */
+ function requireSchedulerAuth(req, res, next) {
++  const header = req.headers.authorization || '';
++  const [scheme, token] = header.split(' ');
++
++  if (scheme === 'Bearer' && token) {
++    try {
++      const payload = jwt.verify(token, config.jwt.secret);
++      if (payload.scope !== 'scheduler') {
++        return res.status(403).json({ error: 'Token does not have booking access' });
++      }
++      req.auth = payload;
++      return next();
++    } catch {
++      return res.status(401).json({ error: 'Invalid or expired token' });
++    }
++  }
++
+   const cookies = parseCookies(req);
+   const session = verify(cookies[COOKIE_NAME]);
+   if (!session) {
+diff --git a/server/package-lock.json b/server/package-lock.json
+index fd1f674..7bc39c7 100644
+--- a/server/package-lock.json
++++ b/server/package-lock.json
+@@ -8,12 +8,40 @@
+       "name": "elder-scheduling-server",
+       "version": "1.0.0",
+       "dependencies": {
+-        "express": "^4.19.2"
++        "cors": "^2.8.5",
++        "express": "^4.19.2",
++        "jsonwebtoken": "^9.0.3",
++        "jwks-rsa": "^4.1.0"
+       },
+       "engines": {
+         "node": ">=18"
+       }
+     },
++    "node_modules/@types/jsonwebtoken": {
++      "version": "9.0.10",
++      "resolved": "https://registry.npmjs.org/@types/jsonwebtoken/-/jsonwebtoken-9.0.10.tgz",
++      "integrity": "sha512-asx5hIG9Qmf/1oStypjanR7iKTv0gXQ1Ov/jfrX6kS/EO0OFni8orbmGCn0672NHR3kXHwpAwR+B368ZGN/2rA==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/ms": "*",
++        "@types/node": "*"
++      }
++    },
++    "node_modules/@types/ms": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/@types/ms/-/ms-2.1.0.tgz",
++      "integrity": "sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==",
++      "license": "MIT"
++    },
++    "node_modules/@types/node": {
++      "version": "26.4.0",
++      "resolved": "https://registry.npmjs.org/@types/node/-/node-26.4.0.tgz",
++      "integrity": "sha512-faiGnoIrLH/V8cibOMEAZ8pMw6oXqSukl29ra4mN8GdaB2ZewzeaLj+INpV5N+Z1eKWzY+IzaIZH2EIR6YZRNQ==",
++      "license": "MIT",
++      "dependencies": {
++        "undici-types": "~8.3.0"
++      }
++    },
+     "node_modules/accepts": {
+       "version": "1.3.8",
+       "resolved": "https://registry.npmjs.org/accepts/-/accepts-1.3.8.tgz",
+@@ -57,6 +85,12 @@
+         "npm": "1.2.8000 || >= 1.4.16"
+       }
+     },
++    "node_modules/buffer-equal-constant-time": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/buffer-equal-constant-time/-/buffer-equal-constant-time-1.0.1.tgz",
++      "integrity": "sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==",
++      "license": "BSD-3-Clause"
++    },
+     "node_modules/bytes": {
+       "version": "3.1.2",
+       "resolved": "https://registry.npmjs.org/bytes/-/bytes-3.1.2.tgz",
+@@ -131,6 +165,23 @@
+       "integrity": "sha512-NXdYc3dLr47pBkpUCHtKSwIOQXLVn8dZEuywboCOJY/osA0wFSLlSawr3KN8qXJEyX66FcONTH8EIlVuK0yyFA==",
+       "license": "MIT"
+     },
++    "node_modules/cors": {
++      "version": "2.8.6",
++      "resolved": "https://registry.npmjs.org/cors/-/cors-2.8.6.tgz",
++      "integrity": "sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==",
++      "license": "MIT",
++      "dependencies": {
++        "object-assign": "^4",
++        "vary": "^1"
++      },
++      "engines": {
++        "node": ">= 0.10"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/express"
++      }
++    },
+     "node_modules/debug": {
+       "version": "2.6.9",
+       "resolved": "https://registry.npmjs.org/debug/-/debug-2.6.9.tgz",
+@@ -173,6 +224,15 @@
+         "node": ">= 0.4"
+       }
+     },
++    "node_modules/ecdsa-sig-formatter": {
++      "version": "1.0.11",
++      "resolved": "https://registry.npmjs.org/ecdsa-sig-formatter/-/ecdsa-sig-formatter-1.0.11.tgz",
++      "integrity": "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "safe-buffer": "^5.0.1"
++      }
++    },
+     "node_modules/ee-first": {
+       "version": "1.1.1",
+       "resolved": "https://registry.npmjs.org/ee-first/-/ee-first-1.1.1.tgz",
+@@ -444,6 +504,176 @@
+         "node": ">= 0.10"
+       }
+     },
++    "node_modules/jose": {
++      "version": "6.2.10",
++      "resolved": "https://registry.npmjs.org/jose/-/jose-6.2.10.tgz",
++      "integrity": "sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==",
++      "license": "MIT",
++      "funding": {
++        "url": "https://github.com/sponsors/panva"
++      }
++    },
++    "node_modules/jsonwebtoken": {
++      "version": "9.0.3",
++      "resolved": "https://registry.npmjs.org/jsonwebtoken/-/jsonwebtoken-9.0.3.tgz",
++      "integrity": "sha512-MT/xP0CrubFRNLNKvxJ2BYfy53Zkm++5bX9dtuPbqAeQpTVe0MQTFhao8+Cp//EmJp244xt6Drw/GVEGCUj40g==",
++      "license": "MIT",
++      "dependencies": {
++        "jws": "^4.0.1",
++        "lodash.includes": "^4.3.0",
++        "lodash.isboolean": "^3.0.3",
++        "lodash.isinteger": "^4.0.4",
++        "lodash.isnumber": "^3.0.3",
++        "lodash.isplainobject": "^4.0.6",
++        "lodash.isstring": "^4.0.1",
++        "lodash.once": "^4.0.0",
++        "ms": "^2.1.1",
++        "semver": "^7.5.4"
++      },
++      "engines": {
++        "node": ">=12",
++        "npm": ">=6"
++      }
++    },
++    "node_modules/jsonwebtoken/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
++    "node_modules/jwa": {
++      "version": "2.0.1",
++      "resolved": "https://registry.npmjs.org/jwa/-/jwa-2.0.1.tgz",
++      "integrity": "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==",
++      "license": "MIT",
++      "dependencies": {
++        "buffer-equal-constant-time": "^1.0.1",
++        "ecdsa-sig-formatter": "1.0.11",
++        "safe-buffer": "^5.0.1"
++      }
++    },
++    "node_modules/jwks-rsa": {
++      "version": "4.1.0",
++      "resolved": "https://registry.npmjs.org/jwks-rsa/-/jwks-rsa-4.1.0.tgz",
++      "integrity": "sha512-sbkByqyATKYJP5F4RXj03N5TUNC0QLTjCAZvwTzC4BwJZ8e0/cWxN8YROnyUth2g1/ONWi4eSFHeu6oYalrc3Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/jsonwebtoken": "^9.0.4",
++        "debug": "^4.3.4",
++        "jose": "^6.1.3",
++        "limiter": "^1.1.5",
++        "lru-cache": "^11.0.0",
++        "lru-memoizer": "^3.0.0"
++      },
++      "engines": {
++        "node": "^20.19.0 || ^22.12.0 || >= 23.0.0"
++      }
++    },
++    "node_modules/jwks-rsa/node_modules/debug": {
++      "version": "4.4.3",
++      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
++      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
++      "license": "MIT",
++      "dependencies": {
++        "ms": "^2.1.3"
++      },
++      "engines": {
++        "node": ">=6.0"
++      },
++      "peerDependenciesMeta": {
++        "supports-color": {
++          "optional": true
++        }
++      }
++    },
++    "node_modules/jwks-rsa/node_modules/ms": {
++      "version": "2.1.3",
++      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
++      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
++      "license": "MIT"
++    },
++    "node_modules/jws": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/jws/-/jws-4.0.1.tgz",
++      "integrity": "sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA==",
++      "license": "MIT",
++      "dependencies": {
++        "jwa": "^2.0.1",
++        "safe-buffer": "^5.0.1"
++      }
++    },
++    "node_modules/limiter": {
++      "version": "1.1.5",
++      "resolved": "https://registry.npmjs.org/limiter/-/limiter-1.1.5.tgz",
++      "integrity": "sha512-FWWMIEOxz3GwUI4Ts/IvgVy6LPvoMPgjMdQ185nN6psJyBJ4yOpzqm695/h5umdLJg2vW3GR5iG11MAkR2AzJA=="
++    },
++    "node_modules/lodash.clonedeep": {
++      "version": "4.5.0",
++      "resolved": "https://registry.npmjs.org/lodash.clonedeep/-/lodash.clonedeep-4.5.0.tgz",
++      "integrity": "sha512-H5ZhCF25riFd9uB5UCkVKo61m3S/xZk1x4wA6yp/L3RFP6Z/eHH1ymQcGLo7J3GMPfm0V/7m1tryHuGVxpqEBQ==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.includes": {
++      "version": "4.3.0",
++      "resolved": "https://registry.npmjs.org/lodash.includes/-/lodash.includes-4.3.0.tgz",
++      "integrity": "sha512-W3Bx6mdkRTGtlJISOvVD/lbqjTlPPUDTMnlXZFnVwi9NKJ6tiAk6LVdlhZMm17VZisqhKcgzpO5Wz91PCt5b0w==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isboolean": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/lodash.isboolean/-/lodash.isboolean-3.0.3.tgz",
++      "integrity": "sha512-Bz5mupy2SVbPHURB98VAcw+aHh4vRV5IPNhILUCsOzRmsTmSQ17jIuqopAentWoehktxGd9e/hbIXq980/1QJg==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isinteger": {
++      "version": "4.0.4",
++      "resolved": "https://registry.npmjs.org/lodash.isinteger/-/lodash.isinteger-4.0.4.tgz",
++      "integrity": "sha512-DBwtEWN2caHQ9/imiNeEA5ys1JoRtRfY3d7V9wkqtbycnAmTvRRmbHKDV4a0EYc678/dia0jrte4tjYwVBaZUA==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isnumber": {
++      "version": "3.0.3",
++      "resolved": "https://registry.npmjs.org/lodash.isnumber/-/lodash.isnumber-3.0.3.tgz",
++      "integrity": "sha512-QYqzpfwO3/CWf3XP+Z+tkQsfaLL/EnUlXWVkIk5FUPc4sBdTehEqZONuyRt2P67PXAk+NXmTBcc97zw9t1FQrw==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isplainobject": {
++      "version": "4.0.6",
++      "resolved": "https://registry.npmjs.org/lodash.isplainobject/-/lodash.isplainobject-4.0.6.tgz",
++      "integrity": "sha512-oSXzaWypCMHkPC3NvBEaPHf0KsA5mvPrOPgQWDsbg8n7orZ290M0BmC/jgRZ4vcJ6DTAhjrsSYgdsW/F+MFOBA==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.isstring": {
++      "version": "4.0.1",
++      "resolved": "https://registry.npmjs.org/lodash.isstring/-/lodash.isstring-4.0.1.tgz",
++      "integrity": "sha512-0wJxfxH1wgO3GrbuP+dTTk7op+6L41QCXbGINEmD+ny/G/eCqGzxyCsh7159S+mgDDcoarnBw6PC1PS5+wUGgw==",
++      "license": "MIT"
++    },
++    "node_modules/lodash.once": {
++      "version": "4.1.1",
++      "resolved": "https://registry.npmjs.org/lodash.once/-/lodash.once-4.1.1.tgz",
++      "integrity": "sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==",
++      "license": "MIT"
++    },
++    "node_modules/lru-cache": {
++      "version": "11.5.2",
++      "resolved": "https://registry.npmjs.org/lru-cache/-/lru-cache-11.5.2.tgz",
++      "integrity": "sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==",
++      "license": "BlueOak-1.0.0",
++      "engines": {
++        "node": "20 || >=22"
++      }
++    },
++    "node_modules/lru-memoizer": {
++      "version": "3.0.0",
++      "resolved": "https://registry.npmjs.org/lru-memoizer/-/lru-memoizer-3.0.0.tgz",
++      "integrity": "sha512-m83w/cYXLdUIboKSPxzPAGfYnk+vqeDYXuoSrQRw1q+yVEd8IXhvMufN8Q5TIPe7e2jyX4SRNrDJI2Skw1yznQ==",
++      "license": "MIT",
++      "dependencies": {
++        "lodash.clonedeep": "^4.5.0",
++        "lru-cache": "^11.0.1"
++      }
++    },
+     "node_modules/math-intrinsics": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/math-intrinsics/-/math-intrinsics-1.1.0.tgz",
+@@ -528,6 +758,15 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/object-assign": {
++      "version": "4.1.1",
++      "resolved": "https://registry.npmjs.org/object-assign/-/object-assign-4.1.1.tgz",
++      "integrity": "sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
+     "node_modules/object-inspect": {
+       "version": "1.13.4",
+       "resolved": "https://registry.npmjs.org/object-inspect/-/object-inspect-1.13.4.tgz",
+@@ -646,6 +885,18 @@
+       "integrity": "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==",
+       "license": "MIT"
+     },
++    "node_modules/semver": {
++      "version": "7.8.5",
++      "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
++      "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
++      "license": "ISC",
++      "bin": {
++        "semver": "bin/semver.js"
++      },
++      "engines": {
++        "node": ">=10"
++      }
++    },
+     "node_modules/send": {
+       "version": "0.19.2",
+       "resolved": "https://registry.npmjs.org/send/-/send-0.19.2.tgz",
+@@ -800,6 +1051,12 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/undici-types": {
++      "version": "8.3.0",
++      "resolved": "https://registry.npmjs.org/undici-types/-/undici-types-8.3.0.tgz",
++      "integrity": "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==",
++      "license": "MIT"
++    },
+     "node_modules/unpipe": {
+       "version": "1.0.0",
+       "resolved": "https://registry.npmjs.org/unpipe/-/unpipe-1.0.0.tgz",
+diff --git a/server/package.json b/server/package.json
+index 81b6aaa..51e10f7 100644
+--- a/server/package.json
++++ b/server/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "elder-scheduling-server",
+   "version": "1.0.0",
+-  "description": "Backend chokepoint for the Elder Scheduling tool. Mediates all reads/writes to Airtable and sends notification email via Microsoft Graph.",
++  "description": "Backend chokepoint for the Elder Scheduling tool. Mediates all reads/writes to Airtable and sends notification email via Microsoft Graph. Serves both the web client and the mobile app.",
+   "main": "server.js",
+   "type": "commonjs",
+   "scripts": {
+@@ -9,10 +9,11 @@
+     "dev": "node --watch server.js"
+   },
+   "dependencies": {
+-  "express": "^4.19.2",
+-  "jsonwebtoken": "^9.0.3",
+-  "jwks-rsa": "^4.1.0"
+-},
++    "express": "^4.19.2",
++    "jsonwebtoken": "^9.0.3",
++    "jwks-rsa": "^4.1.0",
++    "cors": "^2.8.5"
++  },
+   "engines": {
+     "node": ">=18"
+   }
+diff --git a/server/routes/elderScheduling.js b/server/routes/elderScheduling.js
+index 55199bf..fecbba1 100644
+--- a/server/routes/elderScheduling.js
++++ b/server/routes/elderScheduling.js
+@@ -1,17 +1,18 @@
+ // routes/elderScheduling.js
+ // All HTTP endpoints for the member-facing wizard, the elder self-service
+-// form, and admin lookups.
++// form, and admin lookups — shared by BOTH the web client and the mobile
++// app, now that the two backends are merged. Every route below is used by
++// both clients unless a comment says otherwise; the only thing that
++// differs per client is how a request proves who it is (a session cookie
++// for the web browser, a Bearer JWT for the mobile app) — see
++// lib/schedulerAuth.js and lib/manageAuth.js for that split. Route logic
++// itself is now shared in exactly one place, where it used to be
++// duplicated between this repo's server/ and elder-android-backend.
+ //
+-// CHANGES FROM THE PIN-BASED VERSION:
+-//   - /scheduler-auth now validates a WAC code (schedulerAuth.checkCode)
+-//     instead of a shared PIN, and returns the matched campus/class date.
+-//   - /manage-auth (a single POST) is replaced by two GET routes:
+-//     /auth/login (redirects to Microsoft) and /auth/callback (Microsoft
+-//     redirects back here). See lib/manageAuth.js.
+-//   - /elder-availability, /elder-timeoff, and /all-elders now enforce the
+-//     hybrid role model: 'elder' role is forced to their own record;
+-//     'admin' role can target anyone.
+-//   - New /wac-codes routes for admin management of class codes.
++// Web-only: /auth/login, /auth/callback, /auth/me (the browser redirect
++// sign-in flow), and /elder-sync/refresh (the M365 roster sync).
++// Mobile-only: /admin-auth (the Expo app signs in itself and POSTs the
++// resulting id_token here for verification).
+ 
+ const express = require('express');
+ const { listRecords, createRecord, deleteRecords, getRecord } = require('../lib/airtable');
+@@ -25,9 +26,11 @@ const config = require('../config');
+ 
+ const router = express.Router();
+ 
+-// --- Member wizard login (WAC code — replaces the old shared PIN) ---
++// --- Member wizard login (WAC code — replaces the old shared PIN).
++// Issues a cookie AND a bearer token; each client uses whichever applies
++// to it. See lib/schedulerAuth.js. ---
+ 
+-router.post('/scheduler-auth', (req, res) => schedulerAuth.checkCode(req, res));
++router.post('/scheduler-auth', (req, res, next) => schedulerAuth.checkCode(req, res, next));
+ 
+ // --- Campuses ---
+ 
+@@ -111,6 +114,10 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
+ 
+     const summary = `Campus: ${campusName}\nElder: ${elderName}\nDate: ${date}\nTime: ${timeSlot}\nMember: ${memberName} (${memberEmail})`;
+ 
++    // The booking itself already succeeded above — that's the part that
++    // matters. Email is a secondary effect: if it fails, log it
++    // server-side and tell the client via `emailSent: false`, but don't
++    // fail the whole request.
+     let emailSent = true;
+     try {
+       await Promise.all([
+@@ -175,23 +182,27 @@ router.post('/sunday-optout', schedulerAuth.requireSchedulerAuth, async (req, re
+   }
+ });
+ 
+-// --- Elder/Admin sign-in (Entra ID, replaces the shared manage PIN) ---
+-
++// --- Elder/Admin sign-in ---
++// Web: server-side redirect flow (a real browser navigation, not fetch).
+ router.get('/auth/login', manageAuth.startLogin);
+ router.get('/auth/callback', manageAuth.handleCallback);
+ 
+-// Lightweight session check — lets the frontend find out on page load
+-// whether someone's already signed in (and their role/elder match)
+-// without the httpOnly session cookie being readable from JS directly.
+-router.get('/auth/me', manageAuth.requireManageAuth, (req, res) => {
++// Web only: lets the frontend find out on page load whether someone's
++// already signed in, without the httpOnly session cookie being readable
++// from JS directly.
++router.get('/auth/me', manageAuth.requireAdminAuth, (req, res) => {
+   res.json({ role: req.auth.role, name: req.auth.name, elderName: req.auth.elderName });
+ });
+ 
++// Mobile only: the Expo app signs in itself (PKCE) and POSTs the
++// resulting id_token here to be verified.
++router.post('/admin-auth', (req, res) => manageAuth.checkEntraLogin(req, res));
++
+ // --- Elder self-service availability. Hybrid scoping: role 'elder' is
+ // forced to their own record (matched at login by email); role 'admin'
+ // can operate on any elder by name. ---
+ 
+-router.get('/elder-availability', manageAuth.requireManageAuth, async (req, res, next) => {
++router.get('/elder-availability', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     let elderName = req.query.elderName;
+     if (req.auth.role === 'elder') {
+@@ -212,7 +223,7 @@ router.get('/elder-availability', manageAuth.requireManageAuth, async (req, res,
+   }
+ });
+ 
+-router.post('/elder-availability', manageAuth.requireManageAuth, async (req, res, next) => {
++router.post('/elder-availability', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     let { elderName, dayOfWeek, weekOfMonth, timeSlots } = req.body;
+ 
+@@ -238,7 +249,7 @@ router.post('/elder-availability', manageAuth.requireManageAuth, async (req, res
+   }
+ });
+ 
+-router.delete('/elder-availability/:id', manageAuth.requireManageAuth, async (req, res, next) => {
++router.delete('/elder-availability/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role === 'elder') {
+       const record = await getRecord(config.airtable.tables.availability, req.params.id);
+@@ -256,7 +267,7 @@ router.delete('/elder-availability/:id', manageAuth.requireManageAuth, async (re
+ // --- Elder picker (admin-only — self-service elders already know who
+ // they are, via req.auth.elderName) ---
+ 
+-router.get('/all-elders', manageAuth.requireManageAuth, async (req, res, next) => {
++router.get('/all-elders', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role !== 'admin') {
+       return res.status(403).json({ error: 'Only admins can browse all elders.' });
+@@ -274,9 +285,11 @@ router.get('/all-elders', manageAuth.requireManageAuth, async (req, res, next) =
+   }
+ });
+ 
+-// --- M365 elder roster sync (admin-only manual refresh) ---
++// --- M365 elder roster sync (admin-only manual refresh). Web-only for
++// now — nothing in the mobile app currently surfaces this action, but
++// it's not gated to a particular client, just to the admin role. ---
+ 
+-router.post('/elder-sync/refresh', manageAuth.requireManageAuth, async (req, res, next) => {
++router.post('/elder-sync/refresh', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role !== 'admin') {
+       return res.status(403).json({ error: 'Only admins can refresh the elder roster.' });
+@@ -290,7 +303,7 @@ router.post('/elder-sync/refresh', manageAuth.requireManageAuth, async (req, res
+ 
+ // --- Elder self-service time off (same hybrid scoping as availability) ---
+ 
+-router.get('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next) => {
++router.get('/elder-timeoff', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     let elderName = req.query.elderName;
+     if (req.auth.role === 'elder') {
+@@ -311,7 +324,7 @@ router.get('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next
+   }
+ });
+ 
+-router.post('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, next) => {
++router.post('/elder-timeoff', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     let { elderName, startDate, endDate, notes } = req.body;
+ 
+@@ -337,7 +350,7 @@ router.post('/elder-timeoff', manageAuth.requireManageAuth, async (req, res, nex
+   }
+ });
+ 
+-router.delete('/elder-timeoff/:id', manageAuth.requireManageAuth, async (req, res, next) => {
++router.delete('/elder-timeoff/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role === 'elder') {
+       const record = await getRecord(config.airtable.tables.timeOff, req.params.id);
+@@ -354,7 +367,7 @@ router.delete('/elder-timeoff/:id', manageAuth.requireManageAuth, async (req, re
+ 
+ // --- Admin: WAC class code management ---
+ 
+-router.get('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) => {
++router.get('/wac-codes', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role !== 'admin') {
+       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });
+@@ -366,7 +379,7 @@ router.get('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) =>
+   }
+ });
+ 
+-router.post('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) => {
++router.post('/wac-codes', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role !== 'admin') {
+       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });
+@@ -382,7 +395,7 @@ router.post('/wac-codes', manageAuth.requireManageAuth, async (req, res, next) =
+   }
+ });
+ 
+-router.delete('/wac-codes/:id', manageAuth.requireManageAuth, async (req, res, next) => {
++router.delete('/wac-codes/:id', manageAuth.requireAdminAuth, async (req, res, next) => {
+   try {
+     if (req.auth.role !== 'admin') {
+       return res.status(403).json({ error: 'Only admins can manage WAC codes.' });
+diff --git a/server/routes/index.js b/server/routes/index.js
+deleted file mode 100644
+index 637de75..0000000
+--- a/server/routes/index.js
++++ /dev/null
+@@ -1,4 +0,0 @@
+-const { issuePinToken, requirePinToken } = require('../middleware/requirePin');
+-
+-app.post('/api/pin/verify', issuePinToken);       // public
+-app.use('/api/booking', requirePinToken, bookingRouter); // everything else gated
+\ No newline at end of file
+diff --git a/server/server.js b/server/server.js
+index b0009f4..a7eb480 100644
+--- a/server/server.js
++++ b/server/server.js
+@@ -1,23 +1,47 @@
+ // server.js
+ // Entry point. Single Express app, single chokepoint, per the framework.
++// Serves both the web client's built static files AND the API that the
++// mobile app calls remotely — now that the two backends are merged.
+ 
+ const express = require('express');
++const cors = require('cors');
+ const path = require('path');
+ const config = require('./config');
+ const elderSchedulingRoutes = require('./routes/elderScheduling');
+ 
+ const app = express();
+ 
++// CORS: needed for the mobile app's cross-origin API calls. Worth being
++// honest about what this does and doesn't protect: CORS is enforced by
++// browsers, not by native app HTTP clients, so it does nothing to
++// restrict the Expo app itself — a native fetch call ignores it entirely.
++// What it DOES protect against is some other website's JavaScript making
++// browser-based requests to this API using a signed-in user's cookies.
++// CORS_ALLOWED_ORIGINS is a comma-separated env var so this can be
++// tightened per environment without a code change; defaults to none
++// (same-origin only) if unset, since the web client is served by this
++// same app and doesn't need CORS at all.
++const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
++  .split(',')
++  .map((o) => o.trim())
++  .filter(Boolean);
++
++app.use(
++  cors({
++    origin: allowedOrigins.length ? allowedOrigins : false,
++    credentials: true,
++  })
++);
++
+ app.use(express.json());
+ 
+ // API routes for this module.
+ app.use('/api', elderSchedulingRoutes);
+ 
+-// Serve the built React frontend (added next session) as static assets.
+-// Until that exists, this just won't find anything to serve at "/" — the
+-// API endpoints above will still work fine for testing via curl/Postman.
++// Serve the built React frontend as static assets. This repo's web
++// client folder is named `client-web`, not `client` — already fixed on
++// this branch per Step 13.1 of the consolidation runbook.
+ const clientBuildPath = path.join(__dirname, '..', 'client-web', 'dist');
+-// const clientBuildPath = path.join(__dirname, '..', 'client', 'dist');
+ app.use(express.static(clientBuildPath));
+ app.get('*', (req, res, next) => {
+   if (req.path.startsWith('/api')) return next();

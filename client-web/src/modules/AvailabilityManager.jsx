@@ -73,6 +73,10 @@ export default function AvailabilityManager() {
   const [syncSummary, setSyncSummary] = useState(null);
   const [syncError, setSyncError] = useState(null);
 
+  const [backfillLoading, setBackfillLoading] = useState(false);
+  const [backfillResult, setBackfillResult] = useState(null); // dry-run preview or applied result
+  const [backfillError, setBackfillError] = useState(null);
+
   const [newDay, setNewDay] = useState('Sunday');
   const [newWeeks, setNewWeeks] = useState([]);
   const [newSlots, setNewSlots] = useState([]);
@@ -161,6 +165,19 @@ export default function AvailabilityManager() {
       })
       .catch((e) => setSyncError(e.message))
       .finally(() => setSyncLoading(false));
+  }
+
+  function runObjectIdBackfill(confirm) {
+    setBackfillLoading(true);
+    setBackfillError(null);
+    if (confirm) setBackfillResult(null); // clear the dry-run preview once we commit
+    api('/elder-sync/backfill-object-ids', { method: 'POST', body: JSON.stringify({ confirm }) })
+      .then((result) => {
+        setBackfillResult(result);
+        if (confirm) return api('/all-elders').then(setElders);
+      })
+      .catch((e) => setBackfillError(e.message))
+      .finally(() => setBackfillLoading(false));
   }
 
   function toggleInArray(arr, setArr, value) {
@@ -444,6 +461,56 @@ export default function AvailabilityManager() {
                     ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group —
                     reported to the OME email for cleanup in M365.
                   </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="manager-section">
+            <h2>Backfill M365 Object IDs</h2>
+            <p className="empty-message">
+              One-time fix for elders added manually (not via M365 group sync) who are missing the
+              M365 Object ID the calendar-sync feature needs. Matches each one to their M365 account
+              by exact email match — this does NOT touch the M365 group roster or create any new
+              elder records. Run this once before relying on calendar sync for existing elders.
+            </p>
+            <button type="button" onClick={() => runObjectIdBackfill(false)} disabled={backfillLoading}>
+              {backfillLoading ? 'Checking…' : 'Preview backfill (no changes)'}
+            </button>
+
+            {backfillError && <p className="error-message">{backfillError}</p>}
+
+            {backfillResult && (
+              <div className="manager-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                <div>
+                  {backfillResult.applied ? '✅ Applied' : '👀 Preview only — nothing written yet'}
+                </div>
+                <div>
+                  ✅ {backfillResult.applied ? 'Updated' : 'Would update'}:{' '}
+                  {backfillResult.matched.length
+                    ? backfillResult.matched.map((m) => m.elderName).join(', ')
+                    : 'none'}
+                </div>
+                {backfillResult.nearMisses.length > 0 && (
+                  <div>
+                    ⚠️ Near-misses needing manual review (email doesn't match exactly — check for a
+                    typo or trailing space):{' '}
+                    {backfillResult.nearMisses
+                      .map((n) => `${n.elderName} (Airtable: ${n.elderEmail} vs M365: ${n.graphEmail})`)
+                      .join('; ')}
+                  </div>
+                )}
+                {backfillResult.noMatch.length > 0 && (
+                  <div>
+                    ❌ No M365 account found: {backfillResult.noMatch.map((n) => n.elderName).join(', ')}
+                  </div>
+                )}
+                {!backfillResult.applied && backfillResult.matched.length > 0 && (
+                  <button type="button" onClick={() => runObjectIdBackfill(true)} disabled={backfillLoading}>
+                    {backfillLoading
+                      ? 'Applying…'
+                      : `Apply — write Object ID for ${backfillResult.matched.length} elder(s)`}
+                  </button>
                 )}
               </div>
             )}
