@@ -9,8 +9,7 @@ const STEP = {
   SUNDAY_CHECK: 'sunday_check',
   OPT_OUT_FORM: 'opt_out_form',
   OPT_OUT_DONE: 'opt_out_done',
-  DATE: 'date',
-  TIME: 'time',
+  WINDOW: 'window', // the "next two weeks" combined date+time view
   MEMBER_FORM: 'member_form',
   CONFIRMED: 'confirmed',
 };
@@ -27,24 +26,12 @@ async function api(path, options) {
   return data;
 }
 
-function StepList({ items, getLabel, getSubLabel, onPick, emptyMessage, gridClassName }) {
-  if (items.length === 0) {
-    return <p className="empty-message">{emptyMessage}</p>;
-  }
-  return (
-    <div className={`option-grid${gridClassName ? ` ${gridClassName}` : ''}`}>
-      {items.map((item, i) => (
-        <button key={i} className="option-btn" onClick={() => onPick(item)}>
-          {getLabel(item)}
-          {getSubLabel && (
-            <span style={{ display: 'block', fontWeight: 400, fontSize: '11px', marginTop: 4, textTransform: 'none' }}>
-              {getSubLabel(item)}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
+function formatDateLabel(iso) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
 export default function ElderScheduling() {
@@ -63,10 +50,8 @@ export default function ElderScheduling() {
 
   const [elderList, setElderList] = useState([]);
 
-  const [dates, setDates] = useState([]);
+  const [window_, setWindow] = useState([]); // [{date, times}]
   const [date, setDate] = useState(null);
-
-  const [times, setTimes] = useState([]);
   const [time, setTime] = useState(null);
 
   const [elder, setElder] = useState(null); // { id, name }
@@ -83,6 +68,7 @@ export default function ElderScheduling() {
     setDate(null);
     setTime(null);
     setElder(null);
+    setWindow([]);
     setMemberName('');
     setMemberEmail('');
     setMemberPhone('');
@@ -104,8 +90,8 @@ export default function ElderScheduling() {
       .finally(() => setLoading(false));
   }
 
-  function loadElderList(preferred) {
-    setWantsPreferred(preferred);
+  function loadElderList() {
+    setWantsPreferred(true);
     setLoading(true);
     setError(null);
     api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
@@ -117,43 +103,57 @@ export default function ElderScheduling() {
       .finally(() => setLoading(false));
   }
 
+  function chooseNoPreference() {
+    setWantsPreferred(false);
+    setLoading(true);
+    setError(null);
+    api('/round-robin-elder', { method: 'POST', body: JSON.stringify({ campusName: campus.name }) })
+      .then((e) => {
+        setElder(e);
+        setStep(STEP.SUNDAY_CHECK);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }
+
   function pickElder(e) {
     setElder(e);
     setStep(STEP.SUNDAY_CHECK);
   }
 
-  function pickSunday() {
+  function proceedSunday() {
+    loadWindow();
+  }
+
+  function loadWindow() {
     setLoading(true);
     setError(null);
     api(
-      `/dates?campusName=${encodeURIComponent(campus.name)}&dayOfWeek=Sunday&classDate=${classDate}&elderName=${encodeURIComponent(elder.name)}`
+      `/elder-availability-window?campusName=${encodeURIComponent(campus.name)}&classDate=${classDate}&elderName=${encodeURIComponent(elder.name)}`
     )
-      .then((d) => {
-        setDates(d);
-        setStep(STEP.DATE);
+      .then((w) => {
+        setWindow(w);
+        setStep(STEP.WINDOW);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  function pickDate(d) {
+  function pickSlot(d, t) {
     setDate(d);
-    setLoading(true);
-    setError(null);
-    api(
-      `/times?campusName=${encodeURIComponent(campus.name)}&date=${d}&elderName=${encodeURIComponent(elder.name)}`
-    )
-      .then((t) => {
-        setTimes(t);
-        setStep(STEP.TIME);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  function pickTime(t) {
     setTime(t);
     setStep(STEP.MEMBER_FORM);
+  }
+
+  function chooseDifferentElder() {
+    setElder(null);
+    setDate(null);
+    setTime(null);
+    setWindow([]);
+    // Both the "preferred" and "no preference" paths land here on the same
+    // manual list once round-robin's pick doesn't work out — this is the
+    // point where round-robin becomes a starting suggestion, not a lock-in.
+    loadElderList();
   }
 
   function submitAppointment(ev) {
@@ -179,7 +179,8 @@ export default function ElderScheduling() {
       .catch((e) => {
         setError(e.message);
         if (e.message.includes('just booked')) {
-          setStep(STEP.TIME);
+          setStep(STEP.WINDOW);
+          loadWindow();
         }
       })
       .finally(() => setLoading(false));
@@ -191,12 +192,7 @@ export default function ElderScheduling() {
     setError(null);
     api('/sunday-optout', {
       method: 'POST',
-      body: JSON.stringify({
-        campusName: campus.name,
-        memberName,
-        memberEmail,
-        notes,
-      }),
+      body: JSON.stringify({ campusName: campus.name, memberName, memberEmail, notes }),
     })
       .then((res) => {
         setEmailSent(res.emailSent !== false);
@@ -212,12 +208,7 @@ export default function ElderScheduling() {
     setError(null);
     api('/contact-engagement', {
       method: 'POST',
-      body: JSON.stringify({
-        campusName: campus.name,
-        memberName,
-        memberEmail,
-        notes,
-      }),
+      body: JSON.stringify({ campusName: campus.name, memberName, memberEmail, notes }),
     })
       .then((res) => {
         setEmailSent(res.emailSent !== false);
@@ -240,11 +231,7 @@ export default function ElderScheduling() {
         <div className="breadcrumb">
           {campus && <span className="crumb done">Campus: {campus.name}</span>}
           {elder && <span className="crumb done">Elder: {elder.name}</span>}
-          {date && (
-            <span className="crumb done">
-              Date: {new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
-            </span>
-          )}
+          {date && <span className="crumb done">Date: {formatDateLabel(date)}</span>}
           {time && <span className="crumb done">Time: {time}</span>}
         </div>
       )}
@@ -262,6 +249,9 @@ export default function ElderScheduling() {
             onChange={(e) => setCode(e.target.value)}
             autoFocus
           />
+          <p className="empty-message" style={{ fontSize: '11px', marginTop: '4px' }}>
+            The code is case-sensitive.
+          </p>
           <button type="submit">Continue</button>
           {codeError && <p className="error-message">{codeError}</p>}
         </form>
@@ -270,14 +260,14 @@ export default function ElderScheduling() {
       {!loading && step === STEP.PREFERENCE && (
         <>
           <h2>
-            The code you entered indicates that you attended We Are Coastal on {formattedClassDate} at{' '}
-            {campus?.name}. Do you have a preferred elder you would like to meet with?
+            The code you entered indicates that you attended We Are Coastal on "{formattedClassDate}" at "
+            {campus?.name}". Do you have a preferred elder you would like to meet with?
           </h2>
           <div className="option-grid">
-            <button className="option-btn" onClick={() => loadElderList(true)}>
+            <button className="option-btn" onClick={loadElderList}>
               Yes
             </button>
-            <button className="option-btn" onClick={() => loadElderList(false)}>
+            <button className="option-btn" onClick={chooseNoPreference}>
               No preference
             </button>
           </div>
@@ -286,14 +276,15 @@ export default function ElderScheduling() {
 
       {!loading && step === STEP.ELDER_LIST && (
         <>
-          <h2>{wantsPreferred ? 'Choose your preferred elder' : 'Elders at your campus'}</h2>
-          <StepList
-            items={elderList}
-            getLabel={(e) => e.name}
-            getSubLabel={(e) => (e.availability && e.availability.length > 0 ? e.availability.join(' · ') : 'Availability not yet set')}
-            onPick={pickElder}
-            emptyMessage="No Elders found for this campus."
-          />
+          <h2>Choose your preferred elder</h2>
+          <div className="option-grid">
+            {elderList.map((e) => (
+              <button key={e.id} className="option-btn" onClick={() => pickElder(e)}>
+                {e.name}
+              </button>
+            ))}
+          </div>
+          {elderList.length === 0 && <p className="empty-message">No Elders found for this campus.</p>}
           <button
             className="restart-btn"
             style={{ marginTop: '1.5rem' }}
@@ -336,7 +327,7 @@ export default function ElderScheduling() {
         <>
           <h2>When can you meet?</h2>
           <div className="option-grid">
-            <button className="option-btn" onClick={pickSunday}>
+            <button className="option-btn" onClick={proceedSunday}>
               Sunday
             </button>
             <button className="option-btn" onClick={() => setStep(STEP.OPT_OUT_FORM)}>
@@ -374,22 +365,30 @@ export default function ElderScheduling() {
         </div>
       )}
 
-      {!loading && step === STEP.DATE && (
+      {!loading && step === STEP.WINDOW && (
         <>
-          <h2>Choose a date to meet with {elder?.name}</h2>
-          <StepList
-            items={dates}
-            getLabel={(d) => new Date(d + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}
-            onPick={pickDate}
-            emptyMessage="No upcoming Sundays are open for this elder right now."
-          />
-        </>
-      )}
-
-      {!loading && step === STEP.TIME && (
-        <>
-          <h2>Choose a time</h2>
-          <StepList items={times} getLabel={(t) => t} onPick={pickTime} emptyMessage="No open times for that date." />
+          <h2>{elder?.name}'s availability over the next two weeks</h2>
+          {window_.length === 0 && <p className="empty-message">No open times for this elder in the next two weeks.</p>}
+          {window_.map((day) => (
+            <div key={day.date} style={{ marginBottom: '1.25rem' }}>
+              <h3 style={{ fontSize: '14px', marginBottom: '6px' }}>{formatDateLabel(day.date)}</h3>
+              <div className="option-grid">
+                {day.times.map((t) => (
+                  <button key={t} className="option-btn" onClick={() => pickSlot(day.date, t)}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '12px', marginTop: '1rem', flexWrap: 'wrap' }}>
+            <button className="restart-btn" onClick={chooseDifferentElder}>
+              None of these work — choose a different elder
+            </button>
+            <button className="restart-btn" onClick={() => setStep(STEP.ENGAGEMENT_FORM)}>
+              None of these work for me
+            </button>
+          </div>
         </>
       )}
 
@@ -415,7 +414,7 @@ export default function ElderScheduling() {
       {!loading && step === STEP.CONFIRMED && (
         <div className="confirmation">
           <p>
-            Your meeting is confirmed — {campus.name}, {new Date(date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} at {time}, with {elder.name}.
+            Your meeting is confirmed — {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
           </p>
           <p>A confirmation email is on its way to you.</p>
           {!emailSent && (

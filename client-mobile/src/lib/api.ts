@@ -362,6 +362,42 @@ export async function fetchCampusElders(campusName: string): Promise<Elder[]> {
   return response.json();
 }
 
+/** Assigns the "next" elder at a campus in round-robin order, for the
+ *  "no preference" path. Has a side effect (advances the rotation state),
+ *  so this is a POST even though nothing is technically "created". */
+export async function pickRoundRobinElder(campusName: string): Promise<Elder> {
+  const response = await fetch(`${API_BASE}/round-robin-elder`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ campusName }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}) as { error?: string });
+    throw new Error(body.error || `Failed to assign an elder (${response.status})`);
+  }
+  return response.json();
+}
+
+export type AvailabilityWindowDay = { date: string; times: string[] };
+
+/** One elder's open date+time combinations over the next two weeks — the
+ *  real, bookable follow-up screen after an elder is chosen (manually, or
+ *  via round-robin). */
+export async function fetchAvailabilityWindow(
+  campusName: string,
+  classDate: string,
+  elderName: string
+): Promise<AvailabilityWindowDay[]> {
+  const params = new URLSearchParams({ campusName, classDate, elderName });
+  const response = await fetch(`${API_BASE}/elder-availability-window?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load availability (${response.status})`);
+  }
+  return response.json();
+}
+
 /** "None of these elders/times work for me" escape hatch. */
 export async function submitContactEngagement(input: {
   campusName: string;

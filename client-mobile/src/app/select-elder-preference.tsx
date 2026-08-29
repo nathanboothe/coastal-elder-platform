@@ -8,11 +8,7 @@ import { fetchCampusElders, type Elder } from '@/lib/api';
 const COASTAL_BLUE = '#407DA8';
 
 export default function SelectElderPreferenceScreen() {
-  const { campus, classDate, preferred } = useLocalSearchParams<{
-    campus: string;
-    classDate: string;
-    preferred: string;
-  }>();
+  const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
   const router = useRouter();
   const [elders, setElders] = useState<Elder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,8 +24,7 @@ export default function SelectElderPreferenceScreen() {
     setLoading(true);
     setError(false);
     try {
-      const data = await fetchCampusElders(campus);
-      setElders(data);
+      setElders(await fetchCampusElders(campus));
     } catch (err) {
       console.error(err);
       setError(true);
@@ -39,20 +34,15 @@ export default function SelectElderPreferenceScreen() {
   }
 
   function pickElder(elder: Elder) {
-    router.push({
-      pathname: '/select-date',
-      params: { campus, classDate, elder: elder.name },
-    });
+    router.push({ pathname: '/select-date', params: { campus, classDate, elder: elder.name } });
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: preferred === '1' ? 'Choose Your Elder' : 'Elders At Your Campus' }} />
+      <Stack.Screen options={{ title: 'Choose Your Elder' }} />
       <View style={styles.container}>
         <Text style={styles.subtitle}>{campus}</Text>
-        <Text style={styles.title}>
-          {preferred === '1' ? 'Choose your preferred elder' : 'Here are the elders at your campus'}
-        </Text>
+        <Text style={styles.title}>Choose your preferred elder</Text>
 
         {loading && (
           <View style={styles.centerBox}>
@@ -80,11 +70,6 @@ export default function SelectElderPreferenceScreen() {
             {elders.map((elder) => (
               <Pressable key={elder.id} style={styles.elderButton} onPress={() => pickElder(elder)}>
                 <Text style={styles.elderButtonText}>{elder.name}</Text>
-                <Text style={styles.elderAvailabilityText}>
-                  {elder.availability && elder.availability.length > 0
-                    ? elder.availability.join(' · ')
-                    : 'Availability not yet set'}
-                </Text>
               </Pressable>
             ))}
           </View>
@@ -116,23 +101,17 @@ const styles = StyleSheet.create({
   },
   centerBox: { alignItems: 'center', paddingVertical: 40, gap: 12 },
   errorText: { color: '#c0392b', textAlign: 'center', fontSize: 13 },
-  retryButton: {
-    backgroundColor: COASTAL_BLUE,
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
+  retryButton: { backgroundColor: COASTAL_BLUE, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 20 },
   retryButtonText: { color: '#fff', fontWeight: '600' },
   elderList: { gap: 12 },
   elderButton: {
     borderWidth: 1.5,
     borderColor: COASTAL_BLUE,
     borderRadius: 10,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: 16,
   },
-  elderButtonText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '700' },
-  elderAvailabilityText: { color: '#6b7c88', fontSize: 12, marginTop: 4 },
+  elderButtonText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '700', textAlign: 'center' },
   engagementLink: { marginTop: 24, alignItems: 'center', paddingVertical: 8 },
   engagementLinkText: { color: '#6b7c88', fontSize: 13, textDecorationLine: 'underline' },
 });

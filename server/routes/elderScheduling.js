@@ -204,6 +204,34 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
   }
 });
 
+// --- Preferred-elder flow support: round-robin assignment and the 2-week
+//     availability window ---
+
+router.post('/round-robin-elder', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+  try {
+    const { campusName } = req.body;
+    if (!campusName) return res.status(400).json({ error: 'campusName is required' });
+    const elder = await availability.pickRoundRobinElder(campusName);
+    if (!elder) return res.status(404).json({ error: 'No Elders found for this campus.' });
+    res.json(elder);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/elder-availability-window', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+  try {
+    const { campusName, classDate, elderName } = req.query;
+    if (!campusName || !classDate || !elderName) {
+      return res.status(400).json({ error: 'campusName, classDate, and elderName are required' });
+    }
+    const window = await availability.getAvailabilityWindow(campusName, elderName, classDate);
+    res.json(window);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // --- "None of these options work for me" -> engagement branch ---
 
 router.post('/contact-engagement', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
