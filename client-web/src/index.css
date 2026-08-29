@@ -28,7 +28,6 @@ body {
 .wizard h1 {
   font-size: 1.6rem;
   font-weight: 800;
-  text-transform: uppercase;
   letter-spacing: 0.02em;
   margin-bottom: 1.5rem;
 }
@@ -36,7 +35,6 @@ body {
 .wizard h2 {
   font-size: 1.1rem;
   font-weight: 700;
-  text-transform: uppercase;
   letter-spacing: 0.02em;
   margin-bottom: 1rem;
 }
@@ -260,4 +258,14 @@ body {
   background: white;
   border-color: var(--coastal-blue);
   color: var(--coastal-blue);
+}
+
+/* The booking wizard's copy is intentionally lowercase (buttons, elder
+   names, time slots, etc.) — but .option-btn and .member-form button are
+   shared with the /manage admin screens, which keep their original
+   uppercase styling. Scoping the override to .wizard specifically avoids
+   changing anything outside the public booking flow. */
+.wizard .option-btn,
+.wizard .member-form button {
+  text-transform: none;
 }
