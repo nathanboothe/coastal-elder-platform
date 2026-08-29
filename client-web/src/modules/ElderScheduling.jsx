@@ -6,9 +6,6 @@ const STEP = {
   ELDER_LIST: 'elder_list',
   ENGAGEMENT_FORM: 'engagement_form',
   ENGAGEMENT_DONE: 'engagement_done',
-  SUNDAY_CHECK: 'sunday_check',
-  OPT_OUT_FORM: 'opt_out_form',
-  OPT_OUT_DONE: 'opt_out_done',
   WINDOW: 'window', // the "next two weeks" combined date+time view
   MEMBER_FORM: 'member_form',
   CONFIRMED: 'confirmed',
@@ -46,8 +43,6 @@ export default function ElderScheduling() {
   const [campus, setCampus] = useState(null); // { name }
   const [classDate, setClassDate] = useState('');
 
-  const [wantsPreferred, setWantsPreferred] = useState(null); // true | false, drives ELDER_LIST heading only
-
   const [elderList, setElderList] = useState([]);
 
   const [window_, setWindow] = useState([]); // [{date, times}]
@@ -64,7 +59,6 @@ export default function ElderScheduling() {
 
   function reset() {
     setStep(STEP.PREFERENCE);
-    setWantsPreferred(null);
     setDate(null);
     setTime(null);
     setElder(null);
@@ -91,7 +85,6 @@ export default function ElderScheduling() {
   }
 
   function loadElderList() {
-    setWantsPreferred(true);
     setLoading(true);
     setError(null);
     api(`/campus-elders?campusName=${encodeURIComponent(campus.name)}`)
@@ -104,32 +97,33 @@ export default function ElderScheduling() {
   }
 
   function chooseNoPreference() {
-    setWantsPreferred(false);
     setLoading(true);
     setError(null);
     api('/round-robin-elder', { method: 'POST', body: JSON.stringify({ campusName: campus.name }) })
       .then((e) => {
         setElder(e);
-        setStep(STEP.SUNDAY_CHECK);
+        loadWindow(e);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        setError(e.message);
+        setLoading(false);
+      });
   }
 
   function pickElder(e) {
     setElder(e);
-    setStep(STEP.SUNDAY_CHECK);
+    loadWindow(e);
   }
 
-  function proceedSunday() {
-    loadWindow();
-  }
-
-  function loadWindow() {
+  // Takes the elder explicitly rather than reading it from state, since
+  // this is sometimes called in the same tick as setElder() — state
+  // updates aren't reflected in a closure until the next render, so
+  // relying on the `elder` variable here would read the previous value.
+  function loadWindow(forElder) {
     setLoading(true);
     setError(null);
     api(
-      `/elder-availability-window?campusName=${encodeURIComponent(campus.name)}&classDate=${classDate}&elderName=${encodeURIComponent(elder.name)}`
+      `/elder-availability-window?campusName=${encodeURIComponent(campus.name)}&classDate=${classDate}&elderName=${encodeURIComponent(forElder.name)}`
     )
       .then((w) => {
         setWindow(w);
@@ -179,26 +173,9 @@ export default function ElderScheduling() {
       .catch((e) => {
         setError(e.message);
         if (e.message.includes('just booked')) {
-          setStep(STEP.WINDOW);
-          loadWindow();
+          loadWindow(elder);
         }
       })
-      .finally(() => setLoading(false));
-  }
-
-  function submitOptOut(ev) {
-    ev.preventDefault();
-    setLoading(true);
-    setError(null);
-    api('/sunday-optout', {
-      method: 'POST',
-      body: JSON.stringify({ campusName: campus.name, memberName, memberEmail, notes }),
-    })
-      .then((res) => {
-        setEmailSent(res.emailSent !== false);
-        setStep(STEP.OPT_OUT_DONE);
-      })
-      .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
@@ -229,19 +206,19 @@ export default function ElderScheduling() {
 
       {step !== STEP.CODE_GATE && (
         <div className="breadcrumb">
-          {campus && <span className="crumb done">Campus: {campus.name}</span>}
-          {elder && <span className="crumb done">Elder: {elder.name}</span>}
-          {date && <span className="crumb done">Date: {formatDateLabel(date)}</span>}
-          {time && <span className="crumb done">Time: {time}</span>}
+          {campus && <span className="crumb done">campus: {campus.name}</span>}
+          {elder && <span className="crumb done">elder: {elder.name}</span>}
+          {date && <span className="crumb done">date: {formatDateLabel(date)}</span>}
+          {time && <span className="crumb done">time: {time}</span>}
         </div>
       )}
 
       {error && <p className="error-message">{error}</p>}
-      {loading && <p className="loading-message">Loading…</p>}
+      {loading && <p className="loading-message">loading…</p>}
 
       {!loading && step === STEP.CODE_GATE && (
         <form className="member-form" onSubmit={submitCode}>
-          <h2>Enter code to schedule a meeting</h2>
+          <h2>enter code to schedule a meeting</h2>
           <input
             type="text"
             autoCapitalize="characters"
@@ -250,9 +227,9 @@ export default function ElderScheduling() {
             autoFocus
           />
           <p className="empty-message" style={{ fontSize: '11px', marginTop: '4px' }}>
-            The code is case-sensitive.
+            the code is case-sensitive.
           </p>
-          <button type="submit">Continue</button>
+          <button type="submit">continue</button>
           {codeError && <p className="error-message">{codeError}</p>}
         </form>
       )}
@@ -260,15 +237,16 @@ export default function ElderScheduling() {
       {!loading && step === STEP.PREFERENCE && (
         <>
           <h2>
-            The code you entered indicates that you attended We Are Coastal on "{formattedClassDate}" at "
-            {campus?.name}". Do you have a preferred elder you would like to meet with?
+            the code you entered indicates that you attended we are coastal on{' '}
+            <strong>{formattedClassDate}</strong> at <strong>{campus?.name}</strong>. do you have a preferred
+            elder you would like to meet with?
           </h2>
           <div className="option-grid">
             <button className="option-btn" onClick={loadElderList}>
-              Yes
+              yes
             </button>
             <button className="option-btn" onClick={chooseNoPreference}>
-              No preference
+              no preference
             </button>
           </div>
         </>
@@ -276,7 +254,7 @@ export default function ElderScheduling() {
 
       {!loading && step === STEP.ELDER_LIST && (
         <>
-          <h2>Choose your preferred elder</h2>
+          <h2>choose your preferred elder</h2>
           <div className="option-grid">
             {elderList.map((e) => (
               <button key={e.id} className="option-btn" onClick={() => pickElder(e)}>
@@ -284,83 +262,41 @@ export default function ElderScheduling() {
               </button>
             ))}
           </div>
-          {elderList.length === 0 && <p className="empty-message">No Elders found for this campus.</p>}
+          {elderList.length === 0 && <p className="empty-message">no elders found for this campus.</p>}
           <button
             className="restart-btn"
             style={{ marginTop: '1.5rem' }}
             onClick={() => setStep(STEP.ENGAGEMENT_FORM)}
           >
-            None of these work for me
+            none of these work for me
           </button>
         </>
       )}
 
       {!loading && step === STEP.ENGAGEMENT_FORM && (
         <form className="member-form" onSubmit={submitEngagementRequest}>
-          <h2>Let us know how to reach you</h2>
+          <h2>let us know how to reach you</h2>
           <label>
-            Your name
+            your name
             <input required value={memberName} onChange={(e) => setMemberName(e.target.value)} />
           </label>
           <label>
-            Your email
+            your email
             <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
           </label>
           <label>
-            What would help? (optional)
+            what would help? (optional)
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
-          <button type="submit">Submit</button>
+          <button type="submit">submit</button>
         </form>
       )}
 
       {!loading && step === STEP.ENGAGEMENT_DONE && (
         <div className="confirmation">
-          <p>Thank you — our engagement team will follow up to help find a time that works.</p>
+          <p>thank you — our engagement team will follow up to help find a time that works.</p>
           {!emailSent && (
-            <p className="empty-message">(Note: the notification email couldn't be sent. The request itself was saved.)</p>
-          )}
-        </div>
-      )}
-
-      {!loading && step === STEP.SUNDAY_CHECK && (
-        <>
-          <h2>When can you meet?</h2>
-          <div className="option-grid">
-            <button className="option-btn" onClick={proceedSunday}>
-              Sunday
-            </button>
-            <button className="option-btn" onClick={() => setStep(STEP.OPT_OUT_FORM)}>
-              I can't meet on Sunday
-            </button>
-          </div>
-        </>
-      )}
-
-      {!loading && step === STEP.OPT_OUT_FORM && (
-        <form className="member-form" onSubmit={submitOptOut}>
-          <h2>Let us know how to reach you</h2>
-          <label>
-            Your name
-            <input required value={memberName} onChange={(e) => setMemberName(e.target.value)} />
-          </label>
-          <label>
-            Your email
-            <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
-          </label>
-          <label>
-            Notes (optional)
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </label>
-          <button type="submit">Submit</button>
-        </form>
-      )}
-
-      {!loading && step === STEP.OPT_OUT_DONE && (
-        <div className="confirmation">
-          <p>Thank you — we've let our engagement team know, and they'll follow up to find a time that works.</p>
-          {!emailSent && (
-            <p className="empty-message">(Note: the notification email couldn't be sent — this is expected while email isn't fully configured yet. The request itself was saved.)</p>
+            <p className="empty-message">(note: the notification email couldn't be sent. the request itself was saved.)</p>
           )}
         </div>
       )}
@@ -368,7 +304,7 @@ export default function ElderScheduling() {
       {!loading && step === STEP.WINDOW && (
         <>
           <h2>{elder?.name}'s availability over the next two weeks</h2>
-          {window_.length === 0 && <p className="empty-message">No open times for this elder in the next two weeks.</p>}
+          {window_.length === 0 && <p className="empty-message">no open times for this elder in the next two weeks.</p>}
           {window_.map((day) => (
             <div key={day.date} style={{ marginBottom: '1.25rem' }}>
               <h3 style={{ fontSize: '14px', marginBottom: '6px' }}>{formatDateLabel(day.date)}</h3>
@@ -383,10 +319,10 @@ export default function ElderScheduling() {
           ))}
           <div style={{ display: 'flex', gap: '12px', marginTop: '1rem', flexWrap: 'wrap' }}>
             <button className="restart-btn" onClick={chooseDifferentElder}>
-              None of these work — choose a different elder
+              none of these work — choose a different elder
             </button>
             <button className="restart-btn" onClick={() => setStep(STEP.ENGAGEMENT_FORM)}>
-              None of these work for me
+              none of these work for me
             </button>
           </div>
         </>
@@ -394,44 +330,44 @@ export default function ElderScheduling() {
 
       {!loading && step === STEP.MEMBER_FORM && (
         <form className="member-form" onSubmit={submitAppointment}>
-          <h2>Your information</h2>
+          <h2>your information</h2>
           <label>
-            Your name
+            your name
             <input required value={memberName} onChange={(e) => setMemberName(e.target.value)} />
           </label>
           <label>
-            Your email
+            your email
             <input required type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} />
           </label>
           <label>
-            Your phone number (optional)
+            your phone number (optional)
             <input type="tel" value={memberPhone} onChange={(e) => setMemberPhone(e.target.value)} />
           </label>
-          <button type="submit">Confirm appointment</button>
+          <button type="submit">confirm appointment</button>
         </form>
       )}
 
       {!loading && step === STEP.CONFIRMED && (
         <div className="confirmation">
           <p>
-            Your meeting is confirmed — {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
+            your meeting is confirmed — {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
           </p>
-          <p>A confirmation email is on its way to you.</p>
+          <p>a confirmation email is on its way to you.</p>
           {!emailSent && (
-            <p className="empty-message">(Note: the confirmation email couldn't be sent — this is expected while email isn't fully configured yet. Your appointment was saved.)</p>
+            <p className="empty-message">(note: the confirmation email couldn't be sent — this is expected while email isn't fully configured yet. your appointment was saved.)</p>
           )}
         </div>
       )}
 
       {step !== STEP.CODE_GATE && step !== STEP.PREFERENCE && (
         <button className="restart-btn" onClick={reset}>
-          Start over
+          start over
         </button>
       )}
 
       <div style={{ marginTop: '3rem', borderTop: '1px solid #e5e5e2', paddingTop: '1rem' }}>
         <a href="/manage" className="empty-message" style={{ fontSize: '12px' }}>
-          Elder or admin? Manage availability →
+          elder or admin? manage availability →
         </a>
       </div>
     </div>

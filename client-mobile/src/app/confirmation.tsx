@@ -74,32 +74,32 @@ export default function ConfirmationScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: 'Review & Confirm' }} />
       <View style={styles.container}>
-        <Text style={styles.title}>Review Your Appointment</Text>
+        <Text style={styles.title}>review your appointment</Text>
 
         <View style={styles.card}>
           <View style={styles.row}>
-            <Text style={styles.label}>Campus</Text>
+            <Text style={styles.label}>campus</Text>
             <Text style={styles.value}>{campus}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>Date</Text>
+            <Text style={styles.label}>date</Text>
             <Text style={styles.value}>{formatDate(date)}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>Time</Text>
+            <Text style={styles.label}>time</Text>
             <Text style={styles.value}>{time}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
-            <Text style={styles.label}>Elder</Text>
+            <Text style={styles.label}>elder</Text>
             <Text style={styles.value}>{elder}</Text>
           </View>
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.formLabel}>Your Name</Text>
+          <Text style={styles.formLabel}>your name</Text>
           <TextInput
             style={styles.input}
             value={memberName}
@@ -111,7 +111,7 @@ export default function ConfirmationScreen() {
             autoCapitalize="words"
           />
 
-          <Text style={styles.formLabel}>Your Email</Text>
+          <Text style={styles.formLabel}>your email</Text>
           <TextInput
             style={styles.input}
             value={memberEmail}
@@ -125,7 +125,7 @@ export default function ConfirmationScreen() {
             keyboardType="email-address"
           />
 
-          <Text style={styles.formLabel}>Your Phone Number (optional)</Text>
+          <Text style={styles.formLabel}>your phone number (optional)</Text>
           <TextInput
             style={styles.input}
             value={memberPhone}
@@ -145,7 +145,7 @@ export default function ConfirmationScreen() {
           {submitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.confirmButtonText}>Confirm Appointment</Text>
+            <Text style={styles.confirmButtonText}>confirm appointment</Text>
           )}
         </Pressable>
       </View>

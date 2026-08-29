@@ -34,15 +34,15 @@ export default function SelectElderPreferenceScreen() {
   }
 
   function pickElder(elder: Elder) {
-    router.push({ pathname: '/select-date', params: { campus, classDate, elder: elder.name } });
+    router.push({ pathname: '/availability-window', params: { campus, classDate, elder: elder.name } });
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <Stack.Screen options={{ title: 'Choose Your Elder' }} />
+      <Stack.Screen options={{ title: 'choose your elder' }} />
       <View style={styles.container}>
         <Text style={styles.subtitle}>{campus}</Text>
-        <Text style={styles.title}>Choose your preferred elder</Text>
+        <Text style={styles.title}>choose your preferred elder</Text>
 
         {loading && (
           <View style={styles.centerBox}>
@@ -52,16 +52,16 @@ export default function SelectElderPreferenceScreen() {
 
         {!loading && error && (
           <View style={styles.centerBox}>
-            <Text style={styles.errorText}>Couldn't load elders. Check your connection and try again.</Text>
+            <Text style={styles.errorText}>couldn't load elders. check your connection and try again.</Text>
             <Pressable style={styles.retryButton} onPress={loadElders}>
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>retry</Text>
             </Pressable>
           </View>
         )}
 
         {!loading && !error && elders.length === 0 && (
           <View style={styles.centerBox}>
-            <Text style={styles.errorText}>No Elders found for this campus.</Text>
+            <Text style={styles.errorText}>no elders found for this campus.</Text>
           </View>
         )}
 
@@ -80,7 +80,7 @@ export default function SelectElderPreferenceScreen() {
             style={styles.engagementLink}
             onPress={() => router.push({ pathname: '/engagement', params: { campus } })}
           >
-            <Text style={styles.engagementLinkText}>None of these work for me</Text>
+            <Text style={styles.engagementLinkText}>none of these work for me</Text>
           </Pressable>
         )}
       </View>

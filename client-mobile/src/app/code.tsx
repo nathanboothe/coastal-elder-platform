@@ -30,7 +30,7 @@ export default function CodeEntryScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <Text style={styles.title}>Enter Your Code</Text>
+        <Text style={styles.title}>enter your code</Text>
         <Text style={styles.subtitle}>
           This is the code you received at your We Are Coastal class.
         </Text>
@@ -59,7 +59,7 @@ export default function CodeEntryScreen() {
             {submitting ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.submitButtonText}>Continue</Text>
+              <Text style={styles.submitButtonText}>continue</Text>
             )}
           </Pressable>
         </View>

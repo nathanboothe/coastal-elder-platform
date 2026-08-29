@@ -28,12 +28,16 @@ export default function PreferenceScreen() {
     setError(null);
     try {
       const elder = await pickRoundRobinElder(campus);
+      // Goes straight to the elder's availability — the "when can you
+      // meet?" gate was removed since all data is Sunday-only anyway;
+      // "none of these work for me" on the availability screen covers
+      // the same need.
       router.push({
-        pathname: '/select-date',
+        pathname: '/availability-window',
         params: { campus, classDate, elder: elder.name },
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to assign an elder.');
+      setError(err instanceof Error ? err.message : 'failed to assign an elder.');
     } finally {
       setAssigning(false);
     }
@@ -44,8 +48,10 @@ export default function PreferenceScreen() {
       <View style={styles.container}>
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            The code you entered indicates that you attended We Are Coastal on "{formatDate(classDate)}" at "
-            {campus}". Do you have a preferred elder you would like to meet with?
+            the code you entered indicates that you attended we are coastal on{' '}
+            <Text style={styles.bold}>{formatDate(classDate)}</Text> at{' '}
+            <Text style={styles.bold}>{campus}</Text>. do you have a preferred elder you would like to meet
+            with?
           </Text>
         </View>
 
@@ -56,14 +62,14 @@ export default function PreferenceScreen() {
             style={styles.primaryButton}
             onPress={() => router.push({ pathname: '/select-elder-preference', params: { campus, classDate } })}
           >
-            <Text style={styles.primaryButtonText}>Yes</Text>
+            <Text style={styles.primaryButtonText}>yes</Text>
           </Pressable>
 
           <Pressable style={styles.secondaryButton} onPress={chooseNoPreference} disabled={assigning}>
             {assigning ? (
               <ActivityIndicator color={COASTAL_BLUE} />
             ) : (
-              <Text style={styles.secondaryButtonText}>No preference</Text>
+              <Text style={styles.secondaryButtonText}>no preference</Text>
             )}
           </Pressable>
         </View>
@@ -84,6 +90,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   messageText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '600', lineHeight: 22 },
+  bold: { fontWeight: '800' },
   errorText: { color: '#c0392b', fontSize: 13, textAlign: 'center', marginBottom: 16 },
   buttons: { gap: 12 },
   primaryButton: {
