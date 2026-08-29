@@ -27,10 +27,12 @@ export default function RootLayout() {
           options={{ headerShown: true, title: 'Select Elder' }}
         />
         <Stack.Screen name="manage-elder" options={{ headerShown: true, title: 'Manage' }} />
-        <Stack.Screen name="book" options={{ headerShown: true, title: 'Select Campus' }} />
-        <Stack.Screen name="select-date" options={{ headerShown: true }} />
-        <Stack.Screen name="select-time" options={{ headerShown: true }} />
-        <Stack.Screen name="select-elder" options={{ headerShown: true }} />
+        <Stack.Screen
+          name="select-elder-preference"
+          options={{ headerShown: true, title: 'Choose Your Elder' }}
+        />
+        <Stack.Screen name="availability-window" options={{ headerShown: true }} />
+        <Stack.Screen name="engagement" options={{ headerShown: true, title: 'Contact Engagement' }} />
         <Stack.Screen name="confirmation" options={{ headerShown: true }} />
         <Stack.Screen name="confirmed" options={{ headerShown: true }} />
       </Stack>
