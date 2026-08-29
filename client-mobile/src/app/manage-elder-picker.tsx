@@ -123,7 +123,9 @@ export default function ManageElderPickerScreen() {
 
         {!loading &&
           !error &&
-          elders.map((elder) => (
+          [...elders]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((elder) => (
             <Pressable
               key={elder.id}
               style={styles.elderRow}

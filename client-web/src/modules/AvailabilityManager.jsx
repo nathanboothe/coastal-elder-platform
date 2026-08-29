@@ -524,11 +524,13 @@ export default function AvailabilityManager() {
               className="elder-select"
             >
               <option value="">— Select an elder —</option>
-              {elders.map((e) => (
-                <option key={e.id} value={e.name}>
-                  {e.name} ({e.campus})
-                </option>
-              ))}
+              {[...elders]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((e) => (
+                  <option key={e.id} value={e.name}>
+                    {e.name} ({e.campus})
+                  </option>
+                ))}
             </select>
           </label>
         </>
