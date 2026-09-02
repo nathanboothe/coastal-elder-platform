@@ -2,6 +2,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { pickRoundRobinElder } from '@/lib/api';
+import { useState } from 'react';
+import { ActivityIndicator } from 'react-native';
+
 const COASTAL_BLUE = '#407DA8';
 
 function formatDate(iso: string): string {
@@ -15,34 +19,58 @@ function formatDate(iso: string): string {
 export default function PreferenceScreen() {
   const { campus, classDate } = useLocalSearchParams<{ campus: string; classDate: string }>();
   const router = useRouter();
+  const [assigning, setAssigning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function chooseNoPreference() {
+    if (!campus) return;
+    setAssigning(true);
+    setError(null);
+    try {
+      const elder = await pickRoundRobinElder(campus);
+      // Goes straight to the elder's availability — the "when can you
+      // meet?" gate was removed since all data is Sunday-only anyway;
+      // "none of these work for me" on the availability screen covers
+      // the same need.
+      router.push({
+        pathname: '/availability-window',
+        params: { campus, classDate, elder: elder.name },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'failed to assign an elder.');
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
         <View style={styles.messageBox}>
           <Text style={styles.messageText}>
-            The code you entered indicates that you attended We Are Coastal on {formatDate(classDate)} at{' '}
-            {campus}. Do you have a preferred elder you would like to meet with?
+            The code you entered indicates that you attended <Text style={styles.bold}>We Are Coastal</Text> on{' '}
+            <Text style={styles.bold}>{formatDate(classDate)}</Text> at{' '}
+            <Text style={styles.bold}>{campus}</Text>. Do you have a preferred elder you would like to meet
+            with?
           </Text>
         </View>
+
+        {error && <Text style={styles.errorText}>{error}</Text>}
 
         <View style={styles.buttons}>
           <Pressable
             style={styles.primaryButton}
-            onPress={() =>
-              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '1' } })
-            }
+            onPress={() => router.push({ pathname: '/select-elder-preference', params: { campus, classDate } })}
           >
             <Text style={styles.primaryButtonText}>Yes</Text>
           </Pressable>
 
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() =>
-              router.push({ pathname: '/select-elder-preference', params: { campus, classDate, preferred: '0' } })
-            }
-          >
-            <Text style={styles.secondaryButtonText}>No preference</Text>
+          <Pressable style={styles.secondaryButton} onPress={chooseNoPreference} disabled={assigning}>
+            {assigning ? (
+              <ActivityIndicator color={COASTAL_BLUE} />
+            ) : (
+              <Text style={styles.secondaryButtonText}>No preference</Text>
+            )}
           </Pressable>
         </View>
       </View>
@@ -62,6 +90,8 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   messageText: { color: COASTAL_BLUE, fontSize: 16, fontWeight: '600', lineHeight: 22 },
+  bold: { fontWeight: '800' },
+  errorText: { color: '#c0392b', fontSize: 13, textAlign: 'center', marginBottom: 16 },
   buttons: { gap: 12 },
   primaryButton: {
     backgroundColor: COASTAL_BLUE,

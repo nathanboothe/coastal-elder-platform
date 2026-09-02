@@ -30,7 +30,7 @@ export default function CodeEntryScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        <Text style={styles.title}>Enter Your Code</Text>
+        <Text style={styles.title}>Enter your code</Text>
         <Text style={styles.subtitle}>
           This is the code you received at your We Are Coastal class.
         </Text>
@@ -48,6 +48,7 @@ export default function CodeEntryScreen() {
             placeholder="Class code"
             maxLength={20}
           />
+          <Text style={styles.caseNoteText}>The code is case-sensitive.</Text>
           {error && <Text style={styles.errorText}>{error}</Text>}
 
           <Pressable
@@ -96,6 +97,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   inputError: { borderColor: '#c0392b' },
+  caseNoteText: { color: '#9aa7b0', fontSize: 11, textAlign: 'center', marginTop: -2 },
   errorText: { color: '#c0392b', fontSize: 13, textAlign: 'center' },
   submitButton: {
     backgroundColor: COASTAL_BLUE,

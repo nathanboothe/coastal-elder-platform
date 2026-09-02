@@ -31,7 +31,7 @@ export default function ConfirmedScreen() {
       <Stack.Screen options={{ title: 'Confirmed', headerBackVisible: false }} />
       <View style={styles.container}>
         <Text style={styles.checkmark}>✓</Text>
-        <Text style={styles.title}>You're All Set!</Text>
+        <Text style={styles.title}>You're all set!</Text>
 
         <View style={styles.card}>
           <View style={styles.row}>

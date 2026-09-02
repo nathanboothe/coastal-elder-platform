@@ -98,7 +98,7 @@ export default function ManageElderPickerScreen() {
               )}
               {syncSummary.duplicates.length > 0 && (
                 <Text style={styles.summaryLine}>
-                  ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group —
+                  ⚠️ {syncSummary.duplicates.length} elder(s) found in more than one elder group -
                   reported to the OME email for cleanup in M365.
                 </Text>
               )}
@@ -123,7 +123,9 @@ export default function ManageElderPickerScreen() {
 
         {!loading &&
           !error &&
-          elders.map((elder) => (
+          [...elders]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((elder) => (
             <Pressable
               key={elder.id}
               style={styles.elderRow}

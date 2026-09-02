@@ -74,7 +74,7 @@ export default function ConfirmationScreen() {
     <SafeAreaView style={styles.safeArea}>
       <Stack.Screen options={{ title: 'Review & Confirm' }} />
       <View style={styles.container}>
-        <Text style={styles.title}>Review Your Appointment</Text>
+        <Text style={styles.title}>Review your appointment</Text>
 
         <View style={styles.card}>
           <View style={styles.row}>
@@ -99,7 +99,7 @@ export default function ConfirmationScreen() {
         </View>
 
         <View style={styles.form}>
-          <Text style={styles.formLabel}>Your Name</Text>
+          <Text style={styles.formLabel}>Your name</Text>
           <TextInput
             style={styles.input}
             value={memberName}
@@ -111,7 +111,7 @@ export default function ConfirmationScreen() {
             autoCapitalize="words"
           />
 
-          <Text style={styles.formLabel}>Your Email</Text>
+          <Text style={styles.formLabel}>Your email</Text>
           <TextInput
             style={styles.input}
             value={memberEmail}
@@ -125,7 +125,7 @@ export default function ConfirmationScreen() {
             keyboardType="email-address"
           />
 
-          <Text style={styles.formLabel}>Your Phone Number (optional)</Text>
+          <Text style={styles.formLabel}>Your phone number</Text>
           <TextInput
             style={styles.input}
             value={memberPhone}
@@ -145,7 +145,7 @@ export default function ConfirmationScreen() {
           {submitting ? (
             <ActivityIndicator color="#fff" />
           ) : (
-            <Text style={styles.confirmButtonText}>Confirm Appointment</Text>
+            <Text style={styles.confirmButtonText}>Confirm appointment</Text>
           )}
         </Pressable>
       </View>

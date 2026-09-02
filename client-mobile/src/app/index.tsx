@@ -15,11 +15,11 @@ export default function LandingScreen() {
 
         <View style={styles.form}>
           <Pressable style={styles.primaryButton} onPress={() => router.push('/code')}>
-            <Text style={styles.primaryButtonText}>Book an Appointment</Text>
+            <Text style={styles.primaryButtonText}>Book an appointment</Text>
           </Pressable>
 
           <Pressable style={styles.secondaryButton} onPress={() => router.push('/admin')}>
-            <Text style={styles.secondaryButtonText}>I'm an Elder or Admin</Text>
+            <Text style={styles.secondaryButtonText}>I'm an elder or admin</Text>
           </Pressable>
         </View>
       </View>

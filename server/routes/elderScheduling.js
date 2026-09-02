@@ -204,6 +204,38 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
   }
 });
 
+// --- Preferred-elder flow support: round-robin assignment and the 2-week
+//     availability window ---
+
+router.post('/round-robin-elder', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+  try {
+    const { campusName } = req.body;
+    if (!campusName) return res.status(400).json({ error: 'campusName is required' });
+    const elder = await availability.pickRoundRobinElder(campusName);
+    if (!elder) return res.status(404).json({ error: 'No Elders found for this campus.' });
+    res.json(elder);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/elder-availability-window', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
+  try {
+    const { campusName, classDate, elderName, startDate, endDate } = req.query;
+    if (!campusName || !classDate || !elderName) {
+      return res.status(400).json({ error: 'campusName, classDate, and elderName are required' });
+    }
+    // startDate/endDate are additive — omitted, behavior is byte-for-byte
+    // what it was (today..today+14), which is what mobile still calls.
+    // The web Calendly-style month calendar sends both, for a specific
+    // visible month instead.
+    const window = await availability.getAvailabilityWindow(campusName, elderName, classDate, startDate, endDate);
+    res.json(window);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // --- "None of these options work for me" -> engagement branch ---
 
 router.post('/contact-engagement', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {

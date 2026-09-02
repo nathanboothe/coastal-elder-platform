@@ -5,7 +5,7 @@
 // the actual "product" of this whole project — everything else is plumbing
 // around this file.
 
-const { listRecords, createRecord } = require('./airtable');
+const { listRecords, createRecord, updateRecords } = require('./airtable');
 const config = require('../config');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -67,20 +67,13 @@ function summarizeAvailabilityRows(rows) {
   });
 }
 
+/** Public-safe elder lookup for the "preferred elder" step — names only,
+ *  no availability preview. Real availability is shown on the follow-up
+ *  screen (getAvailabilityWindow below) once one elder is actually
+ *  picked, rather than approximated here for every elder up front. */
 async function getEldersForCampusPublic(campusName) {
   const elders = await getEldersForCampus(campusName);
-  const elderNames = elders.map((e) => e.fields['Full Name']);
-  if (elderNames.length === 0) return [];
-
-  const allAvailRows = await listRecords(config.airtable.tables.availability, {
-    filterByFormula: `OR(${elderNames.map((n) => `{Elder Name} = '${escapeFormulaValue(n)}'`).join(', ')})`,
-  });
-
-  return elders.map((e) => {
-    const name = e.fields['Full Name'];
-    const rows = allAvailRows.filter((r) => r.fields['Elder Name'] === name);
-    return { id: e.id, name, availability: summarizeAvailabilityRows(rows) };
-  });
+  return elders.map((e) => ({ id: e.id, name: e.fields['Full Name'] }));
 }
 
 /** Fetch Availability rows for a list of elder names, for a specific day of week. */
@@ -307,10 +300,164 @@ async function createEngagementRequest({ campusName, memberName, memberEmail, no
   });
 }
 
+/**
+ * All of one elder's open date+time combinations over a date range (the
+ * "choose your preferred elder" step's follow-up screen — a real, bookable
+ * view, not just a recurring-pattern summary). Bounds the search by
+ * calendar days rather than a result count, since this is a date range.
+ *
+ * rangeStart/rangeEnd are optional — omitted, this defaults to exactly the
+ * original behavior (today through today+WINDOW_DAYS), which is what the
+ * mobile app's fetchAvailabilityWindow still calls with. Passing them is
+ * additive: the web Calendly-style month calendar uses them to ask for a
+ * specific visible month instead of a fixed 14-day window.
+ *
+ * @returns {Promise<Array<{date: string, times: string[]}>>}
+ */
+const WINDOW_DAYS = 14;
+
+async function getAvailabilityWindow(campusName, elderName, classDate, rangeStart, rangeEnd) {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  let cursor = rangeStart ? new Date(`${rangeStart}T00:00:00.000Z`) : today;
+  if (cursor < today) cursor = new Date(today);
+  if (classDate) {
+    const earliestAllowed = new Date(`${classDate}T00:00:00.000Z`);
+    earliestAllowed.setUTCDate(earliestAllowed.getUTCDate() + MIN_LEAD_DAYS);
+    if (earliestAllowed > cursor) cursor = new Date(earliestAllowed);
+  }
+  cursor = new Date(cursor);
+
+  let windowEnd;
+  if (rangeEnd) {
+    windowEnd = new Date(`${rangeEnd}T00:00:00.000Z`);
+  } else {
+    windowEnd = new Date(today);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + WINDOW_DAYS);
+  }
+
+  const candidateDates = [];
+  for (let d = new Date(cursor); d <= windowEnd; d.setUTCDate(d.getUTCDate() + 1)) {
+    candidateDates.push(isoDate(d));
+  }
+  if (candidateDates.length === 0) return [];
+
+  // Three Airtable calls total for the whole window — this elder's full
+  // Availability, TimeOff, and confirmed Appointments — rather than three
+  // calls PER DAY. An earlier version called getAvailableTimes once per
+  // candidate date (up to ~15), which either ran sequentially (slow) or
+  // in parallel (which fires ~45 simultaneous Airtable requests and trips
+  // Airtable's rate limit, throwing and surfacing as a generic 500).
+  // Fetching once and computing every day's open slots in memory avoids
+  // both problems and is the fastest option besides.
+  const [availRows, timeOffRows, apptRows] = await Promise.all([
+    listRecords(config.airtable.tables.availability, {
+      filterByFormula: `{Elder Name} = '${escapeFormulaValue(elderName)}'`,
+    }),
+    listRecords(config.airtable.tables.timeOff, {
+      filterByFormula: `{Elder Name} = '${escapeFormulaValue(elderName)}'`,
+    }),
+    listRecords(config.airtable.tables.appointments, {
+      filterByFormula: `AND({Elder Name} = '${escapeFormulaValue(elderName)}', {Campus} = '${escapeFormulaValue(campusName)}', {Status} = 'Confirmed')`,
+    }),
+  ]);
+
+  const bookedSlotsByDate = {};
+  for (const appt of apptRows) {
+    const d = appt.fields['Date'];
+    const slot = appt.fields['Time Slot'];
+    if (!bookedSlotsByDate[d]) bookedSlotsByDate[d] = new Set();
+    bookedSlotsByDate[d].add(slot);
+  }
+
+  const results = [];
+  for (const dateStr of candidateDates) {
+    const date = new Date(`${dateStr}T00:00:00.000Z`);
+    const dow = dayName(date);
+    const wom = weekOfMonth(date);
+
+    const matchingRows = availRows.filter((r) => {
+      const weeks = r.fields['Week of Month'] || [];
+      return r.fields['Day of Week'] === dow && (weeks.includes(wom) || weeks.includes('Every Week'));
+    });
+    if (matchingRows.length === 0) continue;
+
+    // TimeOff's Start Date/End Date are plain Airtable "date" fields, which
+    // the API returns as bare YYYY-MM-DD strings — safe to compare
+    // lexicographically against dateStr without constructing more Dates.
+    const onTimeOff = timeOffRows.some(
+      (t) => t.fields['Start Date'] <= dateStr && t.fields['End Date'] >= dateStr
+    );
+    if (onTimeOff) continue;
+
+    const booked = bookedSlotsByDate[dateStr] || new Set();
+    const openSlots = new Set();
+    for (const row of matchingRows) {
+      for (const slot of row.fields['Time Slots'] || []) {
+        if (!booked.has(slot)) openSlots.add(slot);
+      }
+    }
+
+    const times = SLOT_ORDER.filter((s) => openSlots.has(s));
+    if (times.length > 0) {
+      results.push({ date: dateStr, times });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Picks the "next" elder at a campus in round-robin order, so repeated
+ * "no preference" bookings cycle through everyone rather than landing on
+ * the same person disproportionately. Order is alphabetical by name
+ * (stable and reproducible without needing to store an explicit order),
+ * and RoundRobinState (one row per campus) remembers who went last.
+ *
+ * Not concurrency-safe against two simultaneous requests for the same
+ * campus (a plain read-then-write, no locking) — acceptable for this
+ * volume of traffic.
+ */
+async function pickRoundRobinElder(campusName) {
+  const elders = await getEldersForCampus(campusName);
+  if (elders.length === 0) return null;
+
+  const sortedNames = elders.map((e) => e.fields['Full Name']).sort((a, b) => a.localeCompare(b));
+
+  const stateRows = await listRecords(config.airtable.tables.roundRobinState, {
+    filterByFormula: `{Campus Key} = '${escapeFormulaValue(campusName)}'`,
+  });
+  const stateRecord = stateRows[0];
+  const lastElderName = stateRecord?.fields['Last Elder Name'];
+
+  const lastIndex = lastElderName ? sortedNames.indexOf(lastElderName) : -1;
+  const nextIndex = (lastIndex + 1) % sortedNames.length;
+  const nextName = sortedNames[nextIndex];
+
+  if (stateRecord) {
+    await updateRecords(config.airtable.tables.roundRobinState, [
+      { id: stateRecord.id, fields: { 'Last Elder Name': nextName, 'Updated At': new Date().toISOString() } },
+    ]);
+  } else {
+    await createRecord(config.airtable.tables.roundRobinState, {
+      'Campus Key': campusName,
+      Campus: campusName,
+      'Last Elder Name': nextName,
+      'Updated At': new Date().toISOString(),
+    });
+  }
+
+  const elderRecord = elders.find((e) => e.fields['Full Name'] === nextName);
+  return { id: elderRecord.id, name: nextName };
+}
+
 module.exports = {
   getAvailableDates,
   getAvailableTimes,
   getAvailableElders,
+  getAvailabilityWindow,
+  pickRoundRobinElder,
   getEldersForCampusPublic,
   createAppointment,
   createSundayOptOut,
