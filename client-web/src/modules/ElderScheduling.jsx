@@ -335,6 +335,12 @@ export default function ElderScheduling() {
           Start over
         </button>
       )}
+
+      <div style={{ marginTop: '3rem', borderTop: '1px solid #e5e5e2', paddingTop: '1rem' }}>
+        <a href="/manage" className="empty-message" style={{ fontSize: '12px' }}>
+          Elder or admin? Manage availability →
+        </a>
+      </div>
     </div>
   );
 }
