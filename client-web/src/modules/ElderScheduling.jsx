@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Calendar from './Calendar.jsx';
 
 const STEP = {
   CODE_GATE: 'code_gate',
@@ -6,7 +7,11 @@ const STEP = {
   ELDER_LIST: 'elder_list',
   ENGAGEMENT_FORM: 'engagement_form',
   ENGAGEMENT_DONE: 'engagement_done',
-  WINDOW: 'window', // the "next two weeks" combined date+time view
+  // Calendly-style month calendar, replacing the old "next two weeks" flat
+  // list — same underlying GET /api/elder-availability-window endpoint
+  // (now range-aware), just rendered as a real calendar instead of a
+  // scrolling list of the next 14 days.
+  SCHEDULE: 'schedule',
   MEMBER_FORM: 'member_form',
   CONFIRMED: 'confirmed',
 };
@@ -45,9 +50,12 @@ export default function ElderScheduling() {
 
   const [elderList, setElderList] = useState([]);
 
-  const [window_, setWindow] = useState([]); // [{date, times}]
+  // date/time are set together, straight from the Calendar component (see
+  // handlePickTime below) — Calendar fetches its own month's worth of
+  // availability internally now, no separate window state up here.
   const [date, setDate] = useState(null);
   const [time, setTime] = useState(null);
+  const [scheduleRefreshToken, setScheduleRefreshToken] = useState(0);
 
   const [elder, setElder] = useState(null); // { id, name }
 
@@ -62,7 +70,6 @@ export default function ElderScheduling() {
     setDate(null);
     setTime(null);
     setElder(null);
-    setWindow([]);
     setMemberName('');
     setMemberEmail('');
     setMemberPhone('');
@@ -102,40 +109,21 @@ export default function ElderScheduling() {
     api('/round-robin-elder', { method: 'POST', body: JSON.stringify({ campusName: campus.name }) })
       .then((e) => {
         setElder(e);
-        loadWindow(e);
-      })
-      .catch((e) => {
-        setError(e.message);
-        setLoading(false);
-      });
-  }
-
-  function pickElder(e) {
-    setElder(e);
-    loadWindow(e);
-  }
-
-  // Takes the elder explicitly rather than reading it from state, since
-  // this is sometimes called in the same tick as setElder() — state
-  // updates aren't reflected in a closure until the next render, so
-  // relying on the `elder` variable here would read the previous value.
-  function loadWindow(forElder) {
-    setLoading(true);
-    setError(null);
-    api(
-      `/elder-availability-window?campusName=${encodeURIComponent(campus.name)}&classDate=${classDate}&elderName=${encodeURIComponent(forElder.name)}`
-    )
-      .then((w) => {
-        setWindow(w);
-        setStep(STEP.WINDOW);
+        setStep(STEP.SCHEDULE);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
-  function pickSlot(d, t) {
-    setDate(d);
-    setTime(t);
+  function pickElder(e) {
+    setElder(e);
+    setStep(STEP.SCHEDULE);
+  }
+
+  // Called by Calendar once the member has picked both a day and a time.
+  function handlePickTime(pickedDate, pickedTime) {
+    setDate(pickedDate);
+    setTime(pickedTime);
     setStep(STEP.MEMBER_FORM);
   }
 
@@ -143,7 +131,6 @@ export default function ElderScheduling() {
     setElder(null);
     setDate(null);
     setTime(null);
-    setWindow([]);
     // Both the "preferred" and "no preference" paths land here on the same
     // manual list once round-robin's pick doesn't work out — this is the
     // point where round-robin becomes a starting suggestion, not a lock-in.
@@ -173,7 +160,10 @@ export default function ElderScheduling() {
       .catch((e) => {
         setError(e.message);
         if (e.message.includes('just booked')) {
-          loadWindow(elder);
+          // Slot someone else just took — go back to the calendar and
+          // force it to re-fetch the visible month so it disappears.
+          setStep(STEP.SCHEDULE);
+          setScheduleRefreshToken((t) => t + 1);
         }
       })
       .finally(() => setLoading(false));
@@ -294,30 +284,18 @@ export default function ElderScheduling() {
         </div>
       )}
 
-      {!loading && step === STEP.WINDOW && (
+      {!loading && step === STEP.SCHEDULE && (
         <>
-          <h2>{elder?.name}'s availability over the next two weeks</h2>
-          {window_.length === 0 && <p className="empty-message">No open times for this elder in the next two weeks.</p>}
-          {window_.map((day) => (
-            <div key={day.date} style={{ marginBottom: '1.25rem' }}>
-              <h3 style={{ fontSize: '14px', marginBottom: '6px' }}>{formatDateLabel(day.date)}</h3>
-              <div className="option-grid">
-                {day.times.map((t) => (
-                  <button key={t} className="option-btn" onClick={() => pickSlot(day.date, t)}>
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: '12px', marginTop: '1rem', flexWrap: 'wrap' }}>
-            <button className="restart-btn" onClick={chooseDifferentElder}>
-              None of these work - choose a different elder
-            </button>
-            <button className="restart-btn" onClick={() => setStep(STEP.ENGAGEMENT_FORM)}>
-              None of these work for me
-            </button>
-          </div>
+          <h2>Choose a date and time to meet with {elder?.name}</h2>
+          <Calendar
+            campusName={campus.name}
+            classDate={classDate}
+            elderName={elder.name}
+            refreshToken={scheduleRefreshToken}
+            onPickTime={handlePickTime}
+            onChooseDifferentElder={chooseDifferentElder}
+            onNothingWorks={() => setStep(STEP.ENGAGEMENT_FORM)}
+          />
         </>
       )}
 

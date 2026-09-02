@@ -269,3 +269,187 @@ body {
 .wizard .member-form button {
   text-transform: none;
 }
+
+/* --- Calendly-style month calendar (member booking flow) --- */
+
+.calendar {
+  max-width: 480px;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.calendar-month-label {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.calendar-nav-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 2px solid var(--coastal-black);
+  background: white;
+  color: var(--coastal-black);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.calendar-nav-btn:hover:not(:disabled) {
+  background: var(--coastal-black);
+  color: white;
+}
+
+.calendar-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6b6b68;
+  padding-bottom: 4px;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e5e5e2;
+  border-radius: 8px;
+  background: white;
+  color: #c8c8c4;
+  font-size: 13px;
+  cursor: default;
+}
+
+.calendar-day-loading {
+  background: #f5f5f3;
+  border-color: #f0f0ee;
+}
+
+.calendar-day-outside {
+  border-color: transparent;
+  color: transparent;
+  pointer-events: none;
+}
+
+.calendar-day-open {
+  border-color: var(--coastal-blue);
+  color: var(--coastal-black);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.calendar-day-open:hover {
+  background: var(--coastal-blue);
+  color: white;
+}
+
+.calendar-day-selected {
+  background: var(--coastal-blue);
+  color: white;
+}
+
+.calendar-times {
+  margin-top: 1.5rem;
+}
+
+.calendar-times h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.calendar-time-grid {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+/* --- Weekly availability grid (elder/admin editor) --- */
+
+.availability-grid-wrap {
+  max-width: 620px;
+}
+
+.availability-grid {
+  display: grid;
+  grid-template-columns: 72px repeat(7, 1fr);
+  gap: 2px;
+  user-select: none;
+  overflow-x: auto;
+}
+
+.availability-grid-corner {
+  background: transparent;
+}
+
+.availability-grid-day-header {
+  position: relative;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #6b6b68;
+  padding-bottom: 4px;
+}
+
+.availability-grid-dirty-dot {
+  position: absolute;
+  top: -2px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--coastal-blue);
+}
+
+.availability-grid-slot-label {
+  font-size: 11px;
+  color: #6b6b68;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+}
+
+.availability-grid-cell {
+  height: 18px;
+  border: 1px solid #e5e5e2;
+  border-radius: 3px;
+  background: #f5f5f3;
+  cursor: pointer;
+}
+
+.availability-grid-cell:hover {
+  border-color: var(--coastal-blue);
+}
+
+.availability-grid-cell-selected {
+  background: var(--coastal-blue);
+  border-color: var(--coastal-blue);
+}
+
+.availability-grid-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 0.75rem;
+}

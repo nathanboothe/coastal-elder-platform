@@ -301,30 +301,41 @@ async function createEngagementRequest({ campusName, memberName, memberEmail, no
 }
 
 /**
- * All of one elder's open date+time combinations over the next
- * WINDOW_DAYS days (the "choose your preferred elder" step's follow-up
- * screen — a real, bookable 2-week view, not just a recurring-pattern
- * summary). Bounds the search by calendar days rather than a result
- * count, since "next two weeks" is a date range.
+ * All of one elder's open date+time combinations over a date range (the
+ * "choose your preferred elder" step's follow-up screen — a real, bookable
+ * view, not just a recurring-pattern summary). Bounds the search by
+ * calendar days rather than a result count, since this is a date range.
+ *
+ * rangeStart/rangeEnd are optional — omitted, this defaults to exactly the
+ * original behavior (today through today+WINDOW_DAYS), which is what the
+ * mobile app's fetchAvailabilityWindow still calls with. Passing them is
+ * additive: the web Calendly-style month calendar uses them to ask for a
+ * specific visible month instead of a fixed 14-day window.
  *
  * @returns {Promise<Array<{date: string, times: string[]}>>}
  */
 const WINDOW_DAYS = 14;
 
-async function getAvailabilityWindow(campusName, elderName, classDate) {
+async function getAvailabilityWindow(campusName, elderName, classDate, rangeStart, rangeEnd) {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
-  let cursor = today;
+  let cursor = rangeStart ? new Date(`${rangeStart}T00:00:00.000Z`) : today;
+  if (cursor < today) cursor = new Date(today);
   if (classDate) {
     const earliestAllowed = new Date(`${classDate}T00:00:00.000Z`);
     earliestAllowed.setUTCDate(earliestAllowed.getUTCDate() + MIN_LEAD_DAYS);
-    if (earliestAllowed > cursor) cursor = earliestAllowed;
+    if (earliestAllowed > cursor) cursor = new Date(earliestAllowed);
   }
   cursor = new Date(cursor);
 
-  const windowEnd = new Date(today);
-  windowEnd.setUTCDate(windowEnd.getUTCDate() + WINDOW_DAYS);
+  let windowEnd;
+  if (rangeEnd) {
+    windowEnd = new Date(`${rangeEnd}T00:00:00.000Z`);
+  } else {
+    windowEnd = new Date(today);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() + WINDOW_DAYS);
+  }
 
   const candidateDates = [];
   for (let d = new Date(cursor); d <= windowEnd; d.setUTCDate(d.getUTCDate() + 1)) {

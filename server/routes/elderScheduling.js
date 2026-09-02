@@ -221,11 +221,15 @@ router.post('/round-robin-elder', schedulerAuth.requireSchedulerAuth, async (req
 
 router.get('/elder-availability-window', schedulerAuth.requireSchedulerAuth, async (req, res, next) => {
   try {
-    const { campusName, classDate, elderName } = req.query;
+    const { campusName, classDate, elderName, startDate, endDate } = req.query;
     if (!campusName || !classDate || !elderName) {
       return res.status(400).json({ error: 'campusName, classDate, and elderName are required' });
     }
-    const window = await availability.getAvailabilityWindow(campusName, elderName, classDate);
+    // startDate/endDate are additive — omitted, behavior is byte-for-byte
+    // what it was (today..today+14), which is what mobile still calls.
+    // The web Calendly-style month calendar sends both, for a specific
+    // visible month instead.
+    const window = await availability.getAvailabilityWindow(campusName, elderName, classDate, startDate, endDate);
     res.json(window);
   } catch (err) {
     next(err);

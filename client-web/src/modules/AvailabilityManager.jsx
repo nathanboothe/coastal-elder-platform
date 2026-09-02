@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react';
+import AvailabilityGrid from './AvailabilityGrid.jsx';
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const WEEKS = ['Every Week', '1st', '2nd', '3rd', '4th', '5th'];
-const SLOTS = [
-  '7:30 AM', '8:00 AM', '8:30 AM', '9:00 AM', '9:30 AM', '10:00 AM', '10:30 AM',
-  '11:00 AM', '11:30 AM', '12:00 PM', '12:30 PM', '1:00 PM', '1:30 PM', '2:00 PM',
-  '2:30 PM', '3:00 PM', '3:30 PM', '4:00 PM', '4:30 PM', '5:00 PM', '5:30 PM',
-  '6:00 PM', '6:30 PM', '7:00 PM', '7:30 PM', '8:00 PM', '8:30 PM', '9:00 PM',
-  '9:30 PM', '10:00 PM',
-];
 // Matches the fixed choice list on the WACCodes table's Campus field.
 // Admins are signed in via the manage-session cookie, which doesn't grant
 // access to the scheduler-session-gated /campuses endpoint (different
@@ -35,18 +27,6 @@ async function api(path, options) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data;
-}
-
-function Toggle({ label, checked, onChange }) {
-  return (
-    <button
-      type="button"
-      className={`toggle-chip${checked ? ' toggle-chip-active' : ''}`}
-      onClick={() => onChange(!checked)}
-    >
-      {label}
-    </button>
-  );
 }
 
 export default function AvailabilityManager() {
@@ -76,10 +56,6 @@ export default function AvailabilityManager() {
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [backfillResult, setBackfillResult] = useState(null); // dry-run preview or applied result
   const [backfillError, setBackfillError] = useState(null);
-
-  const [newDay, setNewDay] = useState('Sunday');
-  const [newWeeks, setNewWeeks] = useState([]);
-  const [newSlots, setNewSlots] = useState([]);
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -178,44 +154,6 @@ export default function AvailabilityManager() {
       })
       .catch((e) => setBackfillError(e.message))
       .finally(() => setBackfillLoading(false));
-  }
-
-  function toggleInArray(arr, setArr, value) {
-    setArr(arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]);
-  }
-
-  function addAvailability(ev) {
-    ev.preventDefault();
-    if (newWeeks.length === 0 || newSlots.length === 0) {
-      setError('Pick at least one week and one time slot.');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    api('/elder-availability', {
-      method: 'POST',
-      body: JSON.stringify({
-        elderName: selectedElder,
-        dayOfWeek: newDay,
-        weekOfMonth: newWeeks,
-        timeSlots: newSlots,
-      }),
-    })
-      .then(() => {
-        setNewWeeks([]);
-        setNewSlots([]);
-        return loadElderData(selectedElder);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }
-
-  function deleteAvailability(id) {
-    setLoading(true);
-    api(`/elder-availability/${id}`, { method: 'DELETE' })
-      .then(() => loadElderData(selectedElder))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
   }
 
   function addTimeOff(ev) {
@@ -543,61 +481,11 @@ export default function AvailabilityManager() {
         <>
           <section className="manager-section">
             <h2>Current weekly availability</h2>
-            {availability.length === 0 && <p className="empty-message">No availability set yet.</p>}
-            {availability.map((row) => (
-              <div className="manager-row" key={row.id}>
-                <div>
-                  <strong>{row['Day of Week']}</strong>
-                  {' - '}
-                  {(row['Week of Month'] || []).join(', ')}
-                  <br />
-                  <span className="empty-message">{(row['Time Slots'] || []).join(', ')}</span>
-                </div>
-                <button className="delete-btn" onClick={() => deleteAvailability(row.id)}>
-                  Remove
-                </button>
-              </div>
-            ))}
-
-            <form className="member-form" onSubmit={addAvailability} style={{ marginTop: '1rem' }}>
-              <h3>Add availability</h3>
-              <label>
-                Day of week
-                <select value={newDay} onChange={(e) => setNewDay(e.target.value)}>
-                  {DAYS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <span className="empty-message">Which weeks of the month?</span>
-              <div className="chip-row">
-                {WEEKS.map((w) => (
-                  <Toggle
-                    key={w}
-                    label={w}
-                    checked={newWeeks.includes(w)}
-                    onChange={() => toggleInArray(newWeeks, setNewWeeks, w)}
-                  />
-                ))}
-              </div>
-
-              <span className="empty-message">Which times?</span>
-              <div className="chip-row">
-                {SLOTS.map((s) => (
-                  <Toggle
-                    key={s}
-                    label={s}
-                    checked={newSlots.includes(s)}
-                    onChange={() => toggleInArray(newSlots, setNewSlots, s)}
-                  />
-                ))}
-              </div>
-
-              <button type="submit">Add availability</button>
-            </form>
+            <AvailabilityGrid
+              elderName={selectedElder}
+              availability={availability}
+              onChanged={() => loadElderData(selectedElder)}
+            />
           </section>
 
           <section className="manager-section">
