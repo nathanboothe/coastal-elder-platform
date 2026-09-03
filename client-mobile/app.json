@@ -8,7 +8,6 @@
     "scheme": "elderandroidapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "org.gocoastal.elderscheduling",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
