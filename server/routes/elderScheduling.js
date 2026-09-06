@@ -128,22 +128,23 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
       day: 'numeric',
     });
 
-    // INTERIM template (Aug 2026) — replaces the terse placeholder body
-    // for the member-facing email only, until per-elder custom templates
-    // (Phase 4) exist. Elder- and OME-facing emails intentionally stay
-    // as their short existing versions for now.
+    // Member-facing confirmation template — matches the copy confirmed by
+    // Nathan/Coastal (email_for_member.txt), Sep 2026. Elder- and
+    // OME-facing emails intentionally stay as their short existing
+    // versions for now.
     const memberBody =
       `Thank you for scheduling an appointment with ${elderName} on ${formattedDate} at ${timeSlot}. ` +
-      `Please meet him at the welcome center on your campus. Any of our First Impressions team ` +
-      `members can help connect the two of you if needed.\n\n` +
-      `${elderName} is also receiving a notification of this appointment. If you need to reach ` +
-      `him for any reason, his email address is ${elderEmail || '(not on file)'}.\n\n` +
-      `If he needs to reach you, he will use the email or phone number with which you registered. ` +
-      `If they are not correctly shown below, please be sure to reach out to him to let him know.\n\n` +
-      `${memberEmail}\n${memberPhone || '(no phone number provided)'}\n\n` +
-      `If either of you are unable to reach one another, our Office of Membership and Engagement ` +
-      `is available to help at any time. Their email is engagement@gocoastal.org and the phone ` +
-      `number is 757.867.5683.`;
+      `If you are meeting him on a Sunday, please meet him at the welcome center on your campus. Any ` +
+      `of our First Impressions team members can help connect the two of you if needed.\n\n` +
+      `${elderName} is also receiving a notification of this appointment. If you need to reach him ` +
+      `for any reason, his email address is ${elderEmail || '(not on file)'}. If you are not meeting ` +
+      `him on a Sunday, he will contact you to set up a place to meet.\n\n` +
+      `He will use the email or phone number with which you registered. If any information shown ` +
+      `below is incorrect, please be sure to reach out to him to let him know.\n\n` +
+      `${memberName}\n\n${memberEmail}\n\n${memberPhone || '(no phone number provided)'}\n\n` +
+      `If either of you are unable to reach one another, our Office of Membership and Engagement is ` +
+      `available to help at any time. Their email is engagement@gocoastal.org and the phone number is ` +
+      `757-867-5683.`;
 
     // The booking itself already succeeded above — that's the part that
     // matters. Email is a secondary effect: if it fails, log it
@@ -154,12 +155,14 @@ router.post('/appointments', schedulerAuth.requireSchedulerAuth, async (req, res
       await Promise.all([
         mail.sendMail({
           to: memberEmail,
+          cc: config.notifications.omeEmail,
           subject: 'Your meeting with an Elder is confirmed',
           body: memberBody,
         }),
         elderEmail
           ? mail.sendMail({
               to: elderEmail,
+              cc: config.notifications.omeEmail,
               subject: 'New meeting scheduled',
               body: `A member has scheduled a meeting with you.\n\n${summary}`,
             })
