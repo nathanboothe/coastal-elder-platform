@@ -29,11 +29,22 @@ const { getAccessToken } = require('./graphClient');
  * @param {string} opts.subject
  * @param {string} opts.body - plain text body
  */
-async function sendMail({ to, subject, body }) {
+async function sendMail({ to, cc, subject, body }) {
   const token = await getAccessToken();
   const toRecipients = (Array.isArray(to) ? to : [to]).map((address) => ({
     emailAddress: { address },
   }));
+
+  const message = {
+    subject,
+    body: { contentType: 'Text', content: body },
+    toRecipients,
+  };
+  if (cc) {
+    message.ccRecipients = (Array.isArray(cc) ? cc : [cc]).map((address) => ({
+      emailAddress: { address },
+    }));
+  }
 
   const res = await fetch(
     `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(config.graph.sendAsMailbox)}/sendMail`,
@@ -44,11 +55,7 @@ async function sendMail({ to, subject, body }) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        message: {
-          subject,
-          body: { contentType: 'Text', content: body },
-          toRecipients,
-        },
+        message,
         saveToSentItems: true,
       }),
     }
