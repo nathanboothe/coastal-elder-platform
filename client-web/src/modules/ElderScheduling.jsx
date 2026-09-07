@@ -324,9 +324,6 @@ export default function ElderScheduling() {
             Your meeting is confirmed - {campus.name}, {formatDateLabel(date)} at {time}, with {elder.name}.
           </p>
           <p>A confirmation email is on its way to you.</p>
-          {!emailSent && (
-            <p className="empty-message">(Note: the confirmation email couldn't be sent - this is expected while email isn't fully configured yet. Your appointment was saved.)</p>
-          )}
         </div>
       )}
 
