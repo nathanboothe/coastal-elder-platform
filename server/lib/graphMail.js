@@ -26,6 +26,9 @@ const { getAccessToken } = require('./graphClient');
  * Sends a plain-text email via Graph, from the configured shared mailbox.
  * @param {Object} opts
  * @param {string|string[]} opts.to - recipient email(s)
+ * @param {string|string[]} [opts.cc] - Cc recipient(s), optional. Added
+ *   Sep 2026 so callers can Cc engagement@gocoastal.org per Nathan's
+ *   Aug 31 rule ("Cc that address on every email this solution sends").
  * @param {string} opts.subject
  * @param {string} opts.body - plain text body
  */
