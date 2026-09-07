@@ -84,7 +84,7 @@ module.exports = {
     tenantId: required('ENTRA_TENANT_ID'),
     clientId: required('ENTRA_CLIENT_ID'),
     clientSecret: required('ENTRA_CLIENT_SECRET'),
-    redirectUri: process.env.ENTRA_REDIRECT_URI || 'https://elder.techfoundry360.com/api/auth/callback',
+    redirectUri: required('ENTRA_REDIRECT_URI'),
     // The mobile app's OWN separate Entra registration ("Coastal Elder
     // Scheduler — Mobile", a public client — no secret, since it can't
     // hold one safely). id_tokens it produces carry THIS client ID as
