@@ -41,8 +41,8 @@ module.exports = {
     clientSecret: required('GRAPH_CLIENT_SECRET'),
     sendAsMailbox: process.env.GRAPH_SEND_AS_MAILBOX || 'scheduling@gocoastal.org',
     elderGroupNames: [
-      process.env.GRAPH_ELDER_GROUP_NAME_1 || 'Elders-App',
-      process.env.GRAPH_ELDER_GROUP_NAME_2 || 'Elders-App-Admins',
+      process.env.GRAPH_ELDER_GROUP_NAME_1,
+      process.env.GRAPH_ELDER_GROUP_NAME_2,
     ],
   },
 
