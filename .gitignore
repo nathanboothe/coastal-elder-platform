@@ -4,3 +4,7 @@ node_modules/
 !.env.example
 *.log
 .DS_Store
+client-mobile/.expo
+docs/app-registrations.md
+
+
