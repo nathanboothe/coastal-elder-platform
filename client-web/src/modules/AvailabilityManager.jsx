@@ -388,6 +388,12 @@ export default function AvailabilityManager() {
                     ⚠️ Skipped: {syncSummary.skipped.map((s) => `${s.name} (${s.reason})`).join('; ')}
                   </div>
                 )}
+                {syncSummary.defaulted && syncSummary.defaulted.length > 0 && (
+                  <div>
+                    🧪 Defaulted campus (testing fallback):{' '}
+                    {syncSummary.defaulted.map((d) => `${d.name} (${d.reason})`).join('; ')}
+                  </div>
+                )}
                 {syncSummary.cancelledAppointments.length > 0 && (
                   <div>
                     📧 {syncSummary.cancelledAppointments.length} future appointment(s) were cancelled

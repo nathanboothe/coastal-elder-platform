@@ -44,6 +44,15 @@ module.exports = {
       process.env.GRAPH_ELDER_GROUP_NAME_1,
       process.env.GRAPH_ELDER_GROUP_NAME_2,
     ],
+    // TEMPORARY TESTING KNOB — leave unset in normal operation. When set,
+    // "Refresh from M365" uses this as the Campus for anyone whose Entra
+    // `department` is blank or doesn't match a real campus name, instead of
+    // skipping them entirely. Meant for a beta-test period where test
+    // accounts can't have `department` set (no rights on Coastal's tenant).
+    // Every elder synced this way is called out in the sync's report email
+    // and in the admin-screen summary so it doesn't get missed before
+    // go-live — unset this env var once real elders have real departments.
+    defaultElderCampus: process.env.DEFAULT_ELDER_CAMPUS || null,
   },
 
   // --- Notification recipients ---
