@@ -86,6 +86,7 @@ async function refreshFromM365() {
   const toCreate = [];
   const toUpdate = [];
   const skipped = [];
+  const defaulted = [];
   const added = [];
   const updated = [];
   const reactivated = [];
@@ -94,14 +95,31 @@ async function refreshFromM365() {
     if (!member.objectId) continue;
     seenObjectIds.add(member.objectId);
 
-    if (!validCampuses.has(member.department)) {
-      skipped.push({
-        name: member.name || member.email || member.objectId,
-        reason: member.department
-          ? `Department "${member.department}" doesn't match any campus name`
-          : 'No department set in M365 profile',
-      });
-      continue;
+    let campus = member.department;
+
+    if (!validCampuses.has(campus)) {
+      const fallback = config.graph.defaultElderCampus;
+
+      if (fallback && validCampuses.has(fallback)) {
+        // Testing-period fallback — see config.js's defaultElderCampus
+        // comment. Recorded in `defaulted` (not `skipped`) so it still
+        // shows up in the report email as something to clean up later.
+        defaulted.push({
+          name: member.name || member.email || member.objectId,
+          reason: campus
+            ? `Department "${campus}" doesn't match any campus name — defaulted to "${fallback}"`
+            : `No department set in M365 profile — defaulted to "${fallback}"`,
+        });
+        campus = fallback;
+      } else {
+        skipped.push({
+          name: member.name || member.email || member.objectId,
+          reason: campus
+            ? `Department "${campus}" doesn't match any campus name`
+            : 'No department set in M365 profile',
+        });
+        continue;
+      }
     }
 
     const existing = byObjectId.get(member.objectId);
@@ -111,7 +129,7 @@ async function refreshFromM365() {
         'Full Name': member.name,
         Email: member.email,
         Phone: member.phone,
-        Campus: member.department,
+        Campus: campus,
         'M365 Object ID': member.objectId,
         Status: 'Active',
         Source: SOURCE_M365,
@@ -124,7 +142,7 @@ async function refreshFromM365() {
         'Full Name': member.name,
         Email: member.email,
         Phone: member.phone,
-        Campus: member.department,
+        Campus: campus,
         Status: 'Active',
       };
       toUpdate.push({ id: existing.id, fields });
@@ -174,6 +192,15 @@ async function refreshFromM365() {
     );
   }
 
+  if (defaulted.length > 0) {
+    const lines = defaulted.map((d) => `- ${d.name}: ${d.reason}`).join('\n');
+    reportSections.push(
+      `DEFAULTED CAMPUS (DEFAULT_ELDER_CAMPUS testing fallback applied instead of skipping — ` +
+        `confirm these are test accounts and not real elders left with a missing/wrong ` +
+        `M365 department before go-live):\n${lines}`
+    );
+  }
+
   if (duplicates.length > 0) {
     const lines = duplicates
       .map((d) => `- ${d.name} (${d.objectId}) is in more than one elder group: ${d.groups.join(', ')}.`)
@@ -207,6 +234,7 @@ async function refreshFromM365() {
     reactivated,
     deactivated,
     skipped,
+    defaulted,
     cancelledAppointments,
     duplicates,
   };

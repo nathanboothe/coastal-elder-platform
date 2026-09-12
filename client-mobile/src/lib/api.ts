@@ -3,39 +3,29 @@
 // old standalone elder-android-backend service; that split existed only
 // because the web app's original /manage was PIN-gated with no per-user
 // identity, which is no longer true (see unified-platform-roadmap Section
-// 3). The custom domain is used rather than a raw .onrender.com URL
-// since Render's internal service naming has drifted from what's
-// actually live — the domain is the one stable reference point.
-const API_BASE = 'https://elder.techfoundry360.com/api';
+// 3). Pointed directly at the Render service URL rather than the
+// elder.techfoundry360.com custom domain — that domain's cutover isn't
+// happening on a known timeline, and the app is being deliberately
+// decoupled from Nathan's own tenant/domain, so this is the stable
+// reference for now.
+const API_BASE = 'https://coastal-elder-platform-cprn.onrender.com/api';
 
 // Not secrets — safe to have as real values here (embedded in the app itself).
-// This is the "Coastal Elder Scheduler — Mobile" app registration's own
-// client ID (a public client, PKCE, no secret) — deliberately separate
-// from the web app's registration. The backend now accepts id_tokens
-// from either registration (see server/lib/entraAuth.js).
+// This is the "Coastal Elder App (Mobile Sign-in)" app registration in
+// Coastal's own Entra tenant (public client, PKCE, no secret) — separate
+// from the web app's registration and from the mail-sending registration.
+// The backend validates against this same client ID via
+// ENTRA_MOBILE_CLIENT_ID (server/config.js) — keep the two in sync.
 export const ENTRA_CONFIG = {
-  tenantId: '1607456c-506f-4aea-bd09-15a63ec8ad52',
-  clientId: '9ae266aa-5a20-409d-8fae-153a6cedf606',
-};
-
-export type Campus = {
-  id: string;
-  name: string;
-};
-
-export type Elder = {
-  id: string;
-  name: string;
-  availability?: string[];
+  tenantId: 'f13afb20-c1c8-4f62-8ca6-64749966c378',
+  clientId: '24826b55-00b2-4963-ad2a-3164c26eb06f',
 };
 
 // --- Session state ---
-// Kept in-memory only (not persisted across app restarts) — the booking
-// flow is short (code entry through confirmation), so if the app is fully
-// closed mid-flow, re-entering the code on relaunch is an acceptable
-// tradeoff for not adding SecureStore complexity yet. Can be upgraded to
-// persisted storage later if that turns out to matter in practice.
-let sessionToken: string | null = null;
+// Kept in-memory only (not persisted across app restarts) — re-signing in
+// with Microsoft after a full app close is an acceptable tradeoff for not
+// adding SecureStore complexity yet. Can be upgraded to persisted storage
+// later if that turns out to matter in practice.
 let adminSessionToken: string | null = null;
 
 // Holds the PKCE code_verifier between launching the Entra sign-in browser
@@ -52,13 +42,6 @@ export function takePendingCodeVerifier(): string | null {
   const v = pendingCodeVerifier;
   pendingCodeVerifier = null;
   return v;
-}
-
-function authHeaders(): HeadersInit {
-  if (!sessionToken) {
-    throw new Error('Not logged in — enter your We Are Coastal code first.');
-  }
-  return { Authorization: `Bearer ${sessionToken}` };
 }
 
 export type AvailabilityRow = {
@@ -221,32 +204,6 @@ export async function deleteElderTimeOff(id: string): Promise<void> {
   if (!response.ok) throw new Error(`Failed to delete time off (${response.status})`);
 }
 
-/**
- * Validates a We Are Coastal class code against the backend. On success,
- * stores the session token for subsequent authenticated calls and returns
- * which campus + class date the code belongs to.
- */
-export async function loginWithCode(
-  code: string
-): Promise<{ campus: string; classDate: string }> {
-  const response = await fetch(`${API_BASE}/scheduler-auth`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("That code wasn't recognized. Check it and try again.");
-    }
-    throw new Error(`Login failed (${response.status})`);
-  }
-
-  const data = await response.json();
-  sessionToken = data.token;
-  return { campus: data.campus, classDate: data.classDate };
-}
-
 export type WacCode = {
   id: string;
   code: string;
@@ -290,172 +247,4 @@ export async function deactivateWacCode(id: string): Promise<void> {
     headers: adminAuthHeaders(),
   });
   if (!response.ok) throw new Error(`Failed to deactivate code (${response.status})`);
-}
-
-export async function fetchCampuses(): Promise<Campus[]> {
-  const response = await fetch(`${API_BASE}/campuses`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load campuses (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function submitSundayOptOut(input: {
-  campusName: string;
-  memberName: string;
-  memberEmail: string;
-  notes?: string;
-}): Promise<void> {
-  const response = await fetch(`${API_BASE}/sunday-optout`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}) as { error?: string });
-    throw new Error(body.error || `Failed to submit your request (${response.status})`);
-  }
-}
-
-export async function fetchDates(
-  campusName: string,
-  classDate: string,
-  dayOfWeek: string = 'Sunday',
-  elderName?: string
-): Promise<string[]> {
-  const params = new URLSearchParams({ campusName, classDate, dayOfWeek });
-  if (elderName) params.set('elderName', elderName);
-  const response = await fetch(`${API_BASE}/dates?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load dates (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function fetchTimes(campusName: string, date: string, elderName?: string): Promise<string[]> {
-  const params = new URLSearchParams({ campusName, date });
-  if (elderName) params.set('elderName', elderName);
-  const response = await fetch(`${API_BASE}/times?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load times (${response.status})`);
-  }
-  return response.json();
-}
-
-/** Elders at a campus, with a plain-language summary of each one's
- *  recurring availability pattern — used for the preferred-elder step,
- *  before any date/time has been picked. */
-export async function fetchCampusElders(campusName: string): Promise<Elder[]> {
-  const params = new URLSearchParams({ campusName });
-  const response = await fetch(`${API_BASE}/campus-elders?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load elders (${response.status})`);
-  }
-  return response.json();
-}
-
-/** Assigns the "next" elder at a campus in round-robin order, for the
- *  "no preference" path. Has a side effect (advances the rotation state),
- *  so this is a POST even though nothing is technically "created". */
-export async function pickRoundRobinElder(campusName: string): Promise<Elder> {
-  const response = await fetch(`${API_BASE}/round-robin-elder`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ campusName }),
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}) as { error?: string });
-    throw new Error(body.error || `Failed to assign an elder (${response.status})`);
-  }
-  return response.json();
-}
-
-export type AvailabilityWindowDay = { date: string; times: string[] };
-
-/** One elder's open date+time combinations over the next two weeks — the
- *  real, bookable follow-up screen after an elder is chosen (manually, or
- *  via round-robin). */
-export async function fetchAvailabilityWindow(
-  campusName: string,
-  classDate: string,
-  elderName: string
-): Promise<AvailabilityWindowDay[]> {
-  const params = new URLSearchParams({ campusName, classDate, elderName });
-  const response = await fetch(`${API_BASE}/elder-availability-window?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load availability (${response.status})`);
-  }
-  return response.json();
-}
-
-/** "None of these elders/times work for me" escape hatch. */
-export async function submitContactEngagement(input: {
-  campusName: string;
-  memberName: string;
-  memberEmail: string;
-  notes?: string;
-}): Promise<{ emailSent: boolean }> {
-  const response = await fetch(`${API_BASE}/contact-engagement`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}) as { error?: string });
-    throw new Error(body.error || `Failed to submit your request (${response.status})`);
-  }
-  return response.json();
-}
-
-export async function createAppointment(input: {
-  campusName: string;
-  elderName: string;
-  date: string;
-  timeSlot: string;
-  memberName: string;
-  memberEmail: string;
-  memberPhone?: string;
-}): Promise<{ emailSent: boolean; calendarEventCreated?: boolean }> {
-  const response = await fetch(`${API_BASE}/appointments`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}) as { error?: string });
-    throw new Error(
-      body.error ||
-        (response.status === 409
-          ? 'That time was just booked by someone else. Please pick another.'
-          : `Failed to book appointment (${response.status})`)
-    );
-  }
-
-  return response.json();
-}
-
-export async function fetchElders(
-  campusName: string,
-  date: string,
-  timeSlot: string
-): Promise<Elder[]> {
-  const params = new URLSearchParams({ campusName, date, timeSlot });
-  const response = await fetch(`${API_BASE}/elders?${params.toString()}`, {
-    headers: authHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to load elders (${response.status})`);
-  }
-  return response.json();
 }

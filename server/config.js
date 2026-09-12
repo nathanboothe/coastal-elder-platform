@@ -41,10 +41,18 @@ module.exports = {
     clientSecret: required('GRAPH_CLIENT_SECRET'),
     sendAsMailbox: process.env.GRAPH_SEND_AS_MAILBOX || 'scheduling@gocoastal.org',
     elderGroupNames: [
-      process.env.GRAPH_ELDER_GROUP_NAME_1 || 'Elder Group 1',
-      process.env.GRAPH_ELDER_GROUP_NAME_2 || 'Elder Group 2',
-      process.env.GRAPH_ELDER_GROUP_NAME_3 || 'Elder Group 3',
+      process.env.GRAPH_ELDER_GROUP_NAME_1,
+      process.env.GRAPH_ELDER_GROUP_NAME_2,
     ],
+    // TEMPORARY TESTING KNOB — leave unset in normal operation. When set,
+    // "Refresh from M365" uses this as the Campus for anyone whose Entra
+    // `department` is blank or doesn't match a real campus name, instead of
+    // skipping them entirely. Meant for a beta-test period where test
+    // accounts can't have `department` set (no rights on Coastal's tenant).
+    // Every elder synced this way is called out in the sync's report email
+    // and in the admin-screen summary so it doesn't get missed before
+    // go-live — unset this env var once real elders have real departments.
+    defaultElderCampus: process.env.DEFAULT_ELDER_CAMPUS || null,
   },
 
   // --- Notification recipients ---
@@ -84,7 +92,7 @@ module.exports = {
     tenantId: required('ENTRA_TENANT_ID'),
     clientId: required('ENTRA_CLIENT_ID'),
     clientSecret: required('ENTRA_CLIENT_SECRET'),
-    redirectUri: process.env.ENTRA_REDIRECT_URI || 'https://elder.techfoundry360.com/api/auth/callback',
+    redirectUri: required('ENTRA_REDIRECT_URI'),
     // The mobile app's OWN separate Entra registration ("Coastal Elder
     // Scheduler — Mobile", a public client — no secret, since it can't
     // hold one safely). id_tokens it produces carry THIS client ID as
