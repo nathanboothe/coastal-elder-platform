@@ -82,6 +82,17 @@ async function resolveEntraLogin(idToken) {
     }
   }
 
+  // TEMPORARY DIAGNOSTIC LOGGING — added while tracking down elder-login
+  // mismatches (some testers' Airtable Email field, populated from Graph's
+  // `mail` attribute, doesn't match what the ID token actually carries as
+  // `email`/`preferred_username`, e.g. mail vs. userPrincipalName drift).
+  // Safe to remove once that's resolved — this never blocks sign-in either
+  // way, it just makes the actual matched (or unmatched) value visible in
+  // Render's logs instead of only showing up as a downstream 404.
+  console.log(
+    `[entraLogin] role=${role} tokenEmail="${email}" elderMatch=${elderId ? `${elderName} (${elderId})` : 'NONE'}`
+  );
+
   return { role, name: payload.name, email, elderId, elderName };
 }
 
